@@ -296,8 +296,23 @@ export function resolveGenerateModel(config?: ModelResolutionConfig): string {
   return config?.generate || process.env.QMD_GENERATE_MODEL || DEFAULT_GENERATE_MODEL;
 }
 
+/** Sentinel values that disable reranking entirely. When the resolved rerank
+ *  model is one of these (e.g. QMD_RERANK_MODEL=none), the query pipeline
+ *  skips the local reranker and returns RRF-only scores, so users don't have
+ *  to pass --no-rerank on every invocation and no GGUF is downloaded. */
+const RERANK_DISABLED_SENTINELS = new Set(["none", "disabled", "off", "false", "", "no"]);
+
+/** True when a resolved rerank model URI disables reranking. */
+export function isRerankDisabled(rerankModelUri: string | undefined | null): boolean {
+  if (!rerankModelUri) return true;
+  return RERANK_DISABLED_SENTINELS.has(rerankModelUri.trim().toLowerCase());
+}
+
 export function resolveRerankModel(config?: ModelResolutionConfig): string {
-  return config?.rerank || process.env.QMD_RERANK_MODEL || DEFAULT_RERANK_MODEL;
+  const raw = config?.rerank || process.env.QMD_RERANK_MODEL || DEFAULT_RERANK_MODEL;
+  // Normalize the disabled sentinel to an empty string so downstream code
+  // (LlamaCpp constructor, status display) sees no rerank model configured.
+  return isRerankDisabled(raw) ? "" : raw;
 }
 
 export function resolveModels(config?: ModelResolutionConfig): Required<ModelResolutionConfig> {

@@ -3488,6 +3488,7 @@ function collectEnvironmentOverrides(activeModels: { embed: string; generate: st
   addModel("QMD_EMBED_MODEL", "embed", activeModels.embed);
   addModel("QMD_GENERATE_MODEL", "generate", activeModels.generate);
   addModel("QMD_RERANK_MODEL", "rerank", activeModels.rerank);
+  add("QMD_RERANK_MODEL=none", "disables reranking entirely; qmd query returns RRF-only scores without downloading the rerank GGUF or passing --no-rerank (also accepts disabled/off/false/no)");
   add("QMD_OPENAI_BASE_URL", "base URL for openai: embed models (e.g. https://host/v1); required when QMD_EMBED_MODEL uses the openai: scheme");
   add("QMD_OPENAI_API_KEY", "API key for the openai: embed provider; required when QMD_EMBED_MODEL uses the openai: scheme");
   add("QMD_OPENAI_EMBED_BATCH_SIZE", "max texts per /embeddings request for the openai: provider (default 64)");

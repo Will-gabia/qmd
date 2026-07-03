@@ -15,10 +15,11 @@
 - **OpenAI-compatible providers.** The `openai:` model scheme routes embeddings
   to `/v1/embeddings` and query expansion to `/v1/chat/completions`, so you can
   use a remote OpenAI-compatible endpoint (e.g. Gabia AI Hub with `bge-m3` +
-  `minimax`) instead of downloading local GGUF weights. Reranking still uses
-  the local GGUF reranker (no standard OpenAI rerank API). See the
+  `minimax`) instead of downloading local GGUF weights. Reranking can be
+  disabled with `QMD_RERANK_MODEL=none` (it still uses the local GGUF reranker
+  by default, since there is no standard OpenAI rerank API). See the
   "OpenAI-Compatible Embedding Provider" / "OpenAI-Compatible Generate Provider"
-  sections below.
+  / "Disabling Reranking" sections below.
 
 All upstream behavior below is otherwise preserved.
 
@@ -629,7 +630,33 @@ How it works:
 - On any error the expansion falls back to the original query, so search still
   returns results.
 - Reranking still uses the configured local GGUF model unless `--no-rerank` is
-  passed or the rerank provider is also switched (see rerank notes below).
+  passed, `QMD_RERANK_MODEL=none` is set (see below), or the rerank provider
+  is also switched (no standard OpenAI rerank API exists today).
+
+### Disabling Reranking
+
+Reranking is on by default and pulls the local `Qwen3-Reranker` GGUF (~600MB)
+on first use. To skip it entirely — e.g. when running fully against remote
+OpenAI-compatible providers with no rerank endpoint — set the rerank model to a
+sentinel value:
+
+```sh
+export QMD_RERANK_MODEL="none"   # also accepts disabled/off/false/no
+qmdx query "your query"          # no --no-rerank needed, no GGUF download
+```
+
+Or pin it in `index.yml`:
+
+```yaml
+models:
+  embed: openai:bge-m3
+  generate: openai:minimax
+  rerank: none                    # skip reranking
+```
+
+With reranking disabled, `qmd query` returns results ranked by RRF
+(BM25 + vector) scores only — fast and dependency-free, at the cost of the
+final relevance pass.
 
 > **Note:** `expandQuery` reads the model URI from the `LlamaCpp` instance,
 > which resolves `QMD_GENERATE_MODEL` env first, then `index.yml`'s
