@@ -3488,6 +3488,9 @@ function collectEnvironmentOverrides(activeModels: { embed: string; generate: st
   addModel("QMD_EMBED_MODEL", "embed", activeModels.embed);
   addModel("QMD_GENERATE_MODEL", "generate", activeModels.generate);
   addModel("QMD_RERANK_MODEL", "rerank", activeModels.rerank);
+  add("QMD_OPENAI_BASE_URL", "base URL for openai: embed models (e.g. https://host/v1); required when QMD_EMBED_MODEL uses the openai: scheme");
+  add("QMD_OPENAI_API_KEY", "API key for the openai: embed provider; required when QMD_EMBED_MODEL uses the openai: scheme");
+  add("QMD_OPENAI_EMBED_BATCH_SIZE", "max texts per /embeddings request for the openai: provider (default 64)");
   add("QMD_FORCE_CPU", "forces llama.cpp to bypass GPU backends; embeddings/query will be slower but GPU crashes are avoided");
   add("QMD_LLAMA_GPU", "selects llama.cpp GPU backend (metal/cuda/vulkan) or disables GPU when set to false/off/0");
   add("QMD_DOCTOR_DEVICE_PROBE", "controls qmd doctor native device probing; 0/off skips GPU probing");

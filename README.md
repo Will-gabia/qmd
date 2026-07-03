@@ -556,10 +556,43 @@ qmd embed -f
 Supported model families:
 - **embeddinggemma** (default) — English-optimized, small footprint
 - **Qwen3-Embedding** — Multilingual (119 languages including CJK), MTEB top-ranked
+- **OpenAI-compatible providers** — remote embeddings via `openai:` scheme (see below)
 
 > **Note:** When switching embedding models, you must re-index with `qmd embed -f`
 > since vectors are not cross-compatible between models. The prompt format is
 > automatically adjusted for each model family.
+
+### OpenAI-Compatible Embedding Provider
+
+Instead of local GGUF models, embeddings can be served by any OpenAI-compatible
+`/v1/embeddings` endpoint (e.g. Gabia AI Hub, vLLM, Ollama's OpenAI shim, LocalAI).
+This is useful when you already run a shared embedding service or want to avoid
+downloading GGUF weights locally.
+
+Set the embed model to `openai:<model-name>` and provide the endpoint + key:
+
+```sh
+export QMD_EMBED_MODEL="openai:bge-m3"
+export QMD_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
+export QMD_OPENAI_API_KEY="sk-..."
+# Optional: texts per /embeddings request (default 64)
+# export QMD_OPENAI_EMBED_BATCH_SIZE=64
+
+qmdx embed -f   # (re-)embed using the remote model
+qmdx vsearch "your query"
+```
+
+How it works:
+- `QMD_EMBED_MODEL=openai:bge-m3` activates the HTTP provider for embeddings only.
+- Query expansion and reranking still use the configured local GGUF models
+  (`generate` / `rerank`), so those weights are still pulled on demand.
+- Text chunking uses a token-count approximation (1 token ~= 4 chars) since no
+  local tokenizer is available; chunk boundaries are heuristic but respect the
+  model's context-size limit.
+- The vector table auto-adapts to the returned dimensionality (e.g. bge-m3 = 1024d).
+
+> **Note:** You can also pin `embed: openai:bge-m3` under the `models:` section
+> of `index.yml` so the choice persists without re-exporting env vars every run.
 
 ## Installation
 

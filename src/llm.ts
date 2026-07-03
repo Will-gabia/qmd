@@ -73,6 +73,7 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
 import { homedir } from "os";
 import { join } from "path";
 import { appCacheDir } from "./paths.js";
+import { isOpenAIEmbedModel, openaiEmbed, resolveOpenAIEmbedConfig } from "./openai-embed.js";
 import { existsSync, mkdirSync, statSync, unlinkSync, readdirSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from "fs";
 
 // =============================================================================
@@ -87,6 +88,9 @@ export function isQwen3EmbeddingModel(modelUri: string): boolean {
   return /qwen.*embed/i.test(modelUri) || /embed.*qwen/i.test(modelUri);
 }
 
+/** Format helpers branch on the active model URI. OpenAI-compatible models
+ *  (openai: scheme) use raw text — bge-m3 and similar don't take instruction prefixes. */
+
 /**
  * Format a query for embedding.
  * Uses nomic-style task prefix format for embeddinggemma (default).
@@ -94,6 +98,9 @@ export function isQwen3EmbeddingModel(modelUri: string): boolean {
  */
 export function formatQueryForEmbedding(query: string, modelUri?: string): string {
   const uri = modelUri ?? resolveEmbedModel();
+  if (isOpenAIEmbedModel(uri)) {
+    return query;
+  }
   if (isQwen3EmbeddingModel(uri)) {
     return `Instruct: Retrieve relevant documents for the given query\nQuery: ${query}`;
   }
@@ -107,6 +114,10 @@ export function formatQueryForEmbedding(query: string, modelUri?: string): strin
  */
 export function formatDocForEmbedding(text: string, title?: string, modelUri?: string): string {
   const uri = modelUri ?? resolveEmbedModel();
+  if (isOpenAIEmbedModel(uri)) {
+    // OpenAI-compatible models (bge-m3 etc.): encode raw text; prepend title when present
+    return title ? `${title}\n${text}` : text;
+  }
   if (isQwen3EmbeddingModel(uri)) {
     // Qwen3-Embedding: documents are raw text, no task prefix
     return title ? `${title}\n${text}` : text;
@@ -1231,6 +1242,13 @@ export class LlamaCpp implements LLM {
    * Returns tokenizer tokens (opaque type from node-llama-cpp)
    */
   async tokenize(text: string): Promise<readonly LlamaToken[]> {
+    if (isOpenAIEmbedModel(this.embedModelUri)) {
+      // OpenAI-compatible providers have no local tokenizer. Approximate token
+      // count (1 token ~= 4 chars) so chunking still respects context-size
+      // limits. The pseudo-tokens are never round-tripped via detokenize()
+      // except on the pathological fallback path (see detokenize below).
+      return new Array(Math.ceil(text.length / 4)) as unknown as readonly LlamaToken[];
+    }
     await this.ensureEmbedContext();  // Ensure model is loaded
     if (!this.embedModel) {
       throw new Error("Embed model not loaded");
@@ -1250,6 +1268,13 @@ export class LlamaCpp implements LLM {
    * Detokenize token IDs back to text
    */
   async detokenize(tokens: readonly LlamaToken[]): Promise<string> {
+    if (isOpenAIEmbedModel(this.embedModelUri)) {
+      // OpenAI-compatible providers have no local tokenizer; pseudo-tokens
+      // from tokenize() cannot be decoded. This path is only reached on the
+      // pathological single-line fallback in the chunker, which normal
+      // markdown (with whitespace) does not hit.
+      return "";
+    }
     await this.ensureEmbedContext();
     if (!this.embedModel) {
       throw new Error("Embed model not loaded");
@@ -1298,6 +1323,12 @@ export class LlamaCpp implements LLM {
     this.touchActivity();
 
     try {
+      if (isOpenAIEmbedModel(this.embedModelUri)) {
+        const cfg = resolveOpenAIEmbedConfig(this.embedModelUri);
+        const results = await openaiEmbed([text], cfg);
+        const r = results[0];
+        return r ? { embedding: r.embedding, model: options.model ?? this.embedModelUri } : null;
+      }
       const context = await this.ensureEmbedContext();
 
       // Guard: truncate text that exceeds model context window to prevent GGML crash
@@ -1330,6 +1361,11 @@ export class LlamaCpp implements LLM {
     if (texts.length === 0) return [];
 
     try {
+      if (isOpenAIEmbedModel(this.embedModelUri)) {
+        const cfg = resolveOpenAIEmbedConfig(this.embedModelUri);
+        const results = await openaiEmbed(texts, cfg);
+        return results.map(r => r ? { embedding: r.embedding, model: options.model ?? this.embedModelUri } : null);
+      }
       const contexts = await this.ensureEmbedContexts();
       const n = contexts.length;
 
