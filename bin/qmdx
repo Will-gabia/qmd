@@ -114,10 +114,10 @@ if (sourceAllowed && existsSync(resolve(pkgDir, ".git")) && existsSync(tsEntry))
 }
 
 if (!useSourceMode && !existsSync(jsEntry)) {
-  console.error(`qmd is not built: missing ${jsEntry}`);
+  console.error(`qmdx is not built: missing ${jsEntry}`);
   console.error("Run: bun install && bun run build");
   console.error("Or:  npm install && npm run build");
-  console.error("After building, run: qmd doctor");
+  console.error("After building, run: qmdx doctor");
   process.exit(1);
 }
 
@@ -178,6 +178,6 @@ child.on("exit", (code, signal) => {
 
 child.on("error", (err) => {
   const name = useSourceMode ? sourceRunner : runnerName;
-  console.error(`qmd: failed to launch ${name}: ${err.message}`);
+  console.error(`qmdx: failed to launch ${name}: ${err.message}`);
   process.exit(1);
 });

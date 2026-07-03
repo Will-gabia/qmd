@@ -170,7 +170,7 @@ async function buildInstructions(store: QMDStore): Promise<string> {
  */
 async function createMcpServer(store: QMDStore): Promise<McpServer> {
   const server = new McpServer(
-    { name: "qmd", version: getPackageVersion() },
+    { name: "qmdx", version: getPackageVersion() },
     { instructions: await buildInstructions(store) },
   );
 

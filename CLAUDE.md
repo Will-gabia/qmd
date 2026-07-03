@@ -163,12 +163,12 @@ bun test --preload ./src/test-preload.ts test/
 - Never run `qmd collection add`, `qmd embed`, or `qmd update` automatically
 - Never modify the SQLite database directly
 - Write out example commands for the user to run manually
-- Index is stored at `~/.cache/qmd/index.sqlite`
+- Index is stored at `~/.cache/qmdx/index.sqlite`
 
 ## Do NOT compile
 
 - Never run `bun build --compile` - it overwrites the shell wrapper and breaks sqlite-vec
-- The `qmd` file is a shell script that runs compiled JS from `dist/` - do not replace it
+- The `qmdx` file is a Node launcher that runs compiled JS from `dist/` - do not replace it
 - `npm run build` compiles TypeScript to `dist/` via `tsc -p tsconfig.build.json`
 
 ## Releasing

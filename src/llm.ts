@@ -72,6 +72,7 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
 
 import { homedir } from "os";
 import { join } from "path";
+import { appCacheDir } from "./paths.js";
 import { existsSync, mkdirSync, statSync, unlinkSync, readdirSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from "fs";
 
 // =============================================================================
@@ -291,9 +292,7 @@ export function resolveModels(config?: ModelResolutionConfig): Required<ModelRes
 }
 
 // Local model cache directory
-const MODEL_CACHE_DIR = process.env.XDG_CACHE_HOME
-  ? join(process.env.XDG_CACHE_HOME, "qmd", "models")
-  : join(homedir(), ".cache", "qmd", "models");
+const MODEL_CACHE_DIR = join(appCacheDir(), "models");
 export const DEFAULT_MODEL_CACHE_DIR = MODEL_CACHE_DIR;
 
 export type PullResult = {

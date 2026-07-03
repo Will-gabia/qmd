@@ -7,7 +7,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join, dirname, resolve } from "path";
-import { qmdHomedir } from "./paths.js";
+import { appConfigDir } from "./paths.js";
 import YAML from "yaml";
 
 // ============================================================================
@@ -110,15 +110,9 @@ export function setConfigIndexName(name: string): void {
 }
 
 function getConfigDir(): string {
-  // Allow override via QMD_CONFIG_DIR for testing
-  if (process.env.QMD_CONFIG_DIR) {
-    return process.env.QMD_CONFIG_DIR;
-  }
-  // Respect XDG Base Directory specification (consistent with store.ts)
-  if (process.env.XDG_CONFIG_HOME) {
-    return join(process.env.XDG_CONFIG_HOME, "qmd");
-  }
-  return join(qmdHomedir(), ".config", "qmd");
+  // Centralized in paths.ts so the fork keeps its state separate from any
+  // upstream `qmd` install. Honors QMD_CONFIG_DIR and XDG_CONFIG_HOME.
+  return appConfigDir();
 }
 
 function getConfigFilePath(): string {

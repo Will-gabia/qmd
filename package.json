@@ -1,5 +1,5 @@
 {
-  "name": "@tobilu/qmd",
+  "name": "qmdx",
   "version": "2.6.3",
   "description": "Query Markup Documents - On-device hybrid search for markdown files with BM25, vector search, and LLM reranking",
   "type": "module",
@@ -12,7 +12,7 @@
     }
   },
   "bin": {
-    "qmd": "bin/qmd"
+    "qmdx": "bin/qmdx"
   },
   "files": [
     "bin/",

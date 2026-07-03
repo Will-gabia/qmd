@@ -18,7 +18,7 @@ import { createHash } from "crypto";
 import { readFileSync, realpathSync, statSync, mkdirSync } from "node:fs";
 // Note: node:path resolve is not imported — we export our own cross-platform resolve()
 import fastGlob from "fast-glob";
-import { qmdHomedir } from "./paths.js";
+import { qmdHomedir, appCacheDir } from "./paths.js";
 import {
   LlamaCpp,
   getDefaultLlamaCpp,
@@ -560,8 +560,7 @@ export function getDefaultDbPath(indexName: string = "index"): string {
     );
   }
 
-  const cacheDir = process.env.XDG_CACHE_HOME || resolve(homedir(), ".cache");
-  const qmdCacheDir = resolve(cacheDir, "qmd");
+  const qmdCacheDir = appCacheDir();
   try { mkdirSync(qmdCacheDir, { recursive: true }); } catch { }
   return resolve(qmdCacheDir, `${indexName}.sqlite`);
 }

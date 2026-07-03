@@ -1,4 +1,5 @@
 import { isBun, openDatabase } from "../db.js";
+import { appCacheDir } from "../paths.js";
 import type { Database, SQLiteValue } from "../db.js";
 import fastGlob from "fast-glob";
 import { execSync, spawn as nodeSpawn } from "child_process";
@@ -494,9 +495,7 @@ async function showStatus(): Promise<void> {
   console.log(`Size:  ${formatBytes(indexSize)}`);
 
   // MCP daemon status (check PID file liveness)
-  const mcpCacheDir = process.env.XDG_CACHE_HOME
-    ? resolve(process.env.XDG_CACHE_HOME, "qmd")
-    : resolve(homedir(), ".cache", "qmd");
+  const mcpCacheDir = appCacheDir();
   const mcpPidPath = resolve(mcpCacheDir, "mcp.pid");
   if (existsSync(mcpPidPath)) {
     const mcpPid = parseInt(readFileSync(mcpPidPath, "utf-8").trim());
@@ -4394,9 +4393,7 @@ if (isMain) {
       const sub = cli.args[0]; // stop | status | undefined
 
       // Cache dir for PID/log files — same dir as the index
-      const cacheDir = process.env.XDG_CACHE_HOME
-        ? resolve(process.env.XDG_CACHE_HOME, "qmd")
-        : resolve(homedir(), ".cache", "qmd");
+      const cacheDir = appCacheDir();
       const pidPath = resolve(cacheDir, "mcp.pid");
 
       // Subcommands take priority over flags

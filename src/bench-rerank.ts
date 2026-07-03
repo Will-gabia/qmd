@@ -20,6 +20,7 @@ import {
 } from "node-llama-cpp";
 import { homedir } from "os";
 import { join } from "path";
+import { appCacheDir } from "./paths.js";
 import { cpus } from "os";
 
 // ============================================================================
@@ -27,7 +28,7 @@ import { cpus } from "os";
 // ============================================================================
 
 const RERANK_MODEL = "hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf";
-const MODEL_CACHE = join(homedir(), ".cache", "qmd", "models");
+const MODEL_CACHE = join(appCacheDir(), "models");
 const CONTEXT_SIZE = 2048;
 
 const args = process.argv.slice(2);
