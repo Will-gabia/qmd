@@ -12,6 +12,13 @@
   - Model cache & MCP PID: under `~/.cache/qmdx/`
   - `QMD_CONFIG_DIR` / `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` overrides still work as upstream.
 - **Centralized path config.** Directory names live in `src/paths.ts` (`APP_DIR_NAME = "qmdx"`), which keeps future upstream merges confined to one file.
+- **OpenAI-compatible providers.** The `openai:` model scheme routes embeddings
+  to `/v1/embeddings` and query expansion to `/v1/chat/completions`, so you can
+  use a remote OpenAI-compatible endpoint (e.g. Gabia AI Hub with `bge-m3` +
+  `minimax`) instead of downloading local GGUF weights. Reranking still uses
+  the local GGUF reranker (no standard OpenAI rerank API). See the
+  "OpenAI-Compatible Embedding Provider" / "OpenAI-Compatible Generate Provider"
+  sections below.
 
 All upstream behavior below is otherwise preserved.
 
@@ -584,8 +591,9 @@ qmdx vsearch "your query"
 
 How it works:
 - `QMD_EMBED_MODEL=openai:bge-m3` activates the HTTP provider for embeddings only.
-- Query expansion and reranking still use the configured local GGUF models
-  (`generate` / `rerank`), so those weights are still pulled on demand.
+- Query expansion can also use an OpenAI-compatible endpoint — see
+  [OpenAI-Compatible Generate Provider](#openai-compatible-generate-provider-query-expansion).
+- Reranking still uses the configured local GGUF `rerank` model.
 - Text chunking uses a token-count approximation (1 token ~= 4 chars) since no
   local tokenizer is available; chunk boundaries are heuristic but respect the
   model's context-size limit.
@@ -593,6 +601,40 @@ How it works:
 
 > **Note:** You can also pin `embed: openai:bge-m3` under the `models:` section
 > of `index.yml` so the choice persists without re-exporting env vars every run.
+
+### OpenAI-Compatible Generate Provider (Query Expansion)
+
+Query expansion (`expandQuery`, used by `qmd query`) can also be served by an
+OpenAI-compatible `/v1/chat/completions` endpoint. Set the generate model to
+`openai:<model>` and reuse the same base URL + key:
+
+```sh
+export QMD_GENERATE_MODEL="openai:minimax"
+export QMD_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
+export QMD_OPENAI_API_KEY="sk-..."
+# Optional: raise for reasoning models whose chain-of-thought eats the budget
+# export QMD_OPENAI_CHAT_MAX_TOKENS=4000
+
+qmdx query "your query" --no-rerank   # expand (minimax) + search (bge-m3)
+```
+
+How it works:
+- The local Qwen3 path uses a GBNF grammar to force the `lex:/vec:/hyde:` line
+  format; the OpenAI path replaces it with prose instructions and parses the
+  same line format from the response, so both providers are interchangeable.
+- Reasoning models (e.g. `minimax`) put chain-of-thought in
+  `reasoning_content` and the final answer in `content`; only `content` is
+  read, but a generous `max_tokens` is required or the request ends with
+  `finish_reason=length` and `content=null` (raise `QMD_OPENAI_CHAT_MAX_TOKENS`).
+- On any error the expansion falls back to the original query, so search still
+  returns results.
+- Reranking still uses the configured local GGUF model unless `--no-rerank` is
+  passed or the rerank provider is also switched (see rerank notes below).
+
+> **Note:** `expandQuery` reads the model URI from the `LlamaCpp` instance,
+> which resolves `QMD_GENERATE_MODEL` env first, then `index.yml`'s
+> `models.generate`. To switch providers via config file only, edit
+> `models.generate` in `index.yml`; otherwise export the env var.
 
 ## Installation
 

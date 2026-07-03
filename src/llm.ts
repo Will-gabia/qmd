@@ -74,6 +74,12 @@ import { homedir } from "os";
 import { join } from "path";
 import { appCacheDir } from "./paths.js";
 import { isOpenAIEmbedModel, openaiEmbed, resolveOpenAIEmbedConfig } from "./openai-embed.js";
+import {
+  isOpenAIChatModel,
+  resolveOpenAIChatConfig,
+  openaiChatComplete,
+  buildExpandQueryPrompt,
+} from "./openai-chat.js";
 import { existsSync, mkdirSync, statSync, unlinkSync, readdirSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from "fs";
 
 // =============================================================================
@@ -1491,13 +1497,36 @@ export class LlamaCpp implements LLM {
     // Ping activity at start to keep models alive during this operation
     this.touchActivity();
 
+    const includeLexical = options.includeLexical ?? true;
+    const intent = options.intent;
+
+    // OpenAI-compatible chat provider: no local model load, no grammar.
+    // Reasoning models (e.g. minimax) emit chain-of-thought in
+    // reasoning_content; openaiChatComplete reads only `content`, so we need
+    // a generous max_tokens (default 2000) to let the answer fit.
+    if (isOpenAIChatModel(this.generateModelUri)) {
+      try {
+        const cfg = resolveOpenAIChatConfig(this.generateModelUri);
+        const maxTokens = parseInt(process.env.QMD_OPENAI_CHAT_MAX_TOKENS ?? "2000", 10) || 2000;
+        const content = await openaiChatComplete(cfg, {
+          messages: buildExpandQueryPrompt(query, intent),
+          maxTokens,
+          temperature: 0.7,
+        });
+        return parseExpandedQueryLines(content, query, includeLexical);
+      } catch (error) {
+        console.error("OpenAI query expansion failed:", error);
+        const fallback: Queryable[] = [{ type: 'vec', text: query }];
+        if (includeLexical) fallback.unshift({ type: 'lex', text: query });
+        return fallback;
+      }
+    }
+
     const llama = await this.ensureLlama();
     await this.ensureGenerateModel();
 
-    const includeLexical = options.includeLexical ?? true;
     const context = options.context;
 
-    const intent = options.intent;
     const prompt = intent
       ? `/no_think Expand this search query: ${query}\nQuery intent: ${intent}`
       : `/no_think Expand this search query: ${query}`;
@@ -1539,36 +1568,7 @@ export class LlamaCpp implements LLM {
         },
       });
 
-      const lines = result.trim().split("\n");
-      const queryLower = query.toLowerCase();
-      const queryTerms = queryLower.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
-
-      const hasQueryTerm = (text: string): boolean => {
-        const lower = text.toLowerCase();
-        if (queryTerms.length === 0) return true;
-        return queryTerms.some(term => lower.includes(term));
-      };
-
-      const queryables: Queryable[] = lines.map(line => {
-        const colonIdx = line.indexOf(":");
-        if (colonIdx === -1) return null;
-        const type = line.slice(0, colonIdx).trim();
-        if (type !== 'lex' && type !== 'vec' && type !== 'hyde') return null;
-        const text = line.slice(colonIdx + 1).trim();
-        if (!hasQueryTerm(text)) return null;
-        return { type: type as QueryType, text };
-      }).filter((q): q is Queryable => q !== null);
-
-      // Filter out lex entries if not requested
-      const filtered = includeLexical ? queryables : queryables.filter(q => q.type !== 'lex');
-      if (filtered.length > 0) return filtered;
-
-      const fallback: Queryable[] = [
-        { type: 'hyde', text: `Information about ${query}` },
-        { type: 'lex', text: query },
-        { type: 'vec', text: query },
-      ];
-      return includeLexical ? fallback : fallback.filter(q => q.type !== 'lex');
+      return parseExpandedQueryLines(result, query, includeLexical);
     } catch (error) {
       console.error("Structured query expansion failed:", error);
       // Fallback to original query
@@ -1773,6 +1773,49 @@ export class LlamaCpp implements LLM {
  * Manages LLM session lifecycle with reference counting.
  * Coordinates with LlamaCpp idle timeout to prevent disposal during active sessions.
  */
+/**
+ * Parse lex/vec/hyde expansion lines from an LLM response.
+ *
+ * Shared by the local llama.cpp path (grammar-constrained output) and the
+ * OpenAI-compatible chat path (prose-instructed output). Keeps one parsing
+ * contract so the two providers are interchangeable.
+ */
+export function parseExpandedQueryLines(
+  resultText: string,
+  query: string,
+  includeLexical: boolean
+): Queryable[] {
+  const lines = resultText.trim().split("\n");
+  const queryLower = query.toLowerCase();
+  const queryTerms = queryLower.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+
+  const hasQueryTerm = (text: string): boolean => {
+    const lower = text.toLowerCase();
+    if (queryTerms.length === 0) return true;
+    return queryTerms.some(term => lower.includes(term));
+  };
+
+  const queryables: Queryable[] = lines.map(line => {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) return null;
+    const type = line.slice(0, colonIdx).trim();
+    if (type !== 'lex' && type !== 'vec' && type !== 'hyde') return null;
+    const text = line.slice(colonIdx + 1).trim();
+    if (!hasQueryTerm(text)) return null;
+    return { type: type as QueryType, text };
+  }).filter((q): q is Queryable => q !== null);
+
+  const filtered = includeLexical ? queryables : queryables.filter(q => q.type !== 'lex');
+  if (filtered.length > 0) return filtered;
+
+  const fallback: Queryable[] = [
+    { type: 'hyde', text: `Information about ${query}` },
+    { type: 'lex', text: query },
+    { type: 'vec', text: query },
+  ];
+  return includeLexical ? fallback : fallback.filter(q => q.type !== 'lex');
+}
+
 class LLMSessionManager {
   private llm: LlamaCpp;
   private _activeSessionCount = 0;

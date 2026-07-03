@@ -43,19 +43,31 @@ export interface OpenAIEmbedConfig {
   batchSize: number;
 }
 
-/** Resolve provider config from env + model URI. Throws if incomplete. */
-export function resolveOpenAIEmbedConfig(modelUri: string): OpenAIEmbedConfig {
-  const model = parseOpenAIEmbedModel(modelUri);
+export interface OpenAIBaseConfig {
+  baseUrl: string;
+  apiKey: string;
+}
+
+/** Resolve shared base URL + API key from env. Throws if incomplete.
+ *  Used by both the embedding and chat-completion OpenAI providers. */
+export function resolveOpenAIBaseConfig(): OpenAIBaseConfig {
   const baseUrl = (process.env.QMD_OPENAI_BASE_URL ?? "").trim().replace(/\/+$/, "");
   const apiKey = (process.env.QMD_OPENAI_API_KEY ?? "").trim();
   if (!baseUrl) {
     throw new Error(
-      "QMD_OPENAI_BASE_URL is required for openai: embed models (e.g. https://host/v1)"
+      "QMD_OPENAI_BASE_URL is required for openai: models (e.g. https://host/v1)"
     );
   }
   if (!apiKey) {
-    throw new Error("QMD_OPENAI_API_KEY is required for openai: embed models");
+    throw new Error("QMD_OPENAI_API_KEY is required for openai: models");
   }
+  return { baseUrl, apiKey };
+}
+
+/** Resolve provider config from env + model URI. Throws if incomplete. */
+export function resolveOpenAIEmbedConfig(modelUri: string): OpenAIEmbedConfig {
+  const model = parseOpenAIEmbedModel(modelUri);
+  const { baseUrl, apiKey } = resolveOpenAIBaseConfig();
   const batchSize = parseInt(process.env.QMD_OPENAI_EMBED_BATCH_SIZE ?? "64", 10) || 64;
   return { model, baseUrl, apiKey, batchSize };
 }
