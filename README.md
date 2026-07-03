@@ -1,4 +1,21 @@
-# QMD - Query Markup Documents
+# QMDx - Query Markup Documents
+
+> **Fork notice.** QMDx is a fork of [tobi/qmd](https://github.com/tobi/qmd) (originally `@tobilu/qmd`).
+> It is rebranded and modified to run side-by-side with the original `qmd` without sharing state.
+
+## What changed in this fork
+
+- **Rebranded to `qmdx`.** The package, binary, and MCP server name are now `qmdx`.
+- **Fully separated state.** All persistent state is written under `qmdx` instead of `qmd`, so this fork coexists with an upstream `qmd` install without clobbering its index, config, or daemon files:
+  - Index DB: `~/.cache/qmdx/index.sqlite` (was `~/.cache/qmd`)
+  - Collection config: `~/.config/qmdx/index.yml` (was `~/.config/qmd`)
+  - Model cache & MCP PID: under `~/.cache/qmdx/`
+  - `QMD_CONFIG_DIR` / `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` overrides still work as upstream.
+- **Centralized path config.** Directory names live in `src/paths.ts` (`APP_DIR_NAME = "qmdx"`), which keeps future upstream merges confined to one file.
+
+All upstream behavior below is otherwise preserved.
+
+---
 
 An on-device search engine for everything you need to remember. Index your markdown notes, meeting transcripts, documentation, and knowledge bases. Search with keywords or natural language. Ideal for your agentic flows.
 
