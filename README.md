@@ -17,9 +17,8 @@
   use a remote OpenAI-compatible endpoint (e.g. Gabia AI Hub with `bge-m3` +
   `minimax`) instead of downloading local GGUF weights. Reranking can be
   disabled with `QMD_RERANK_MODEL=none` (it still uses the local GGUF reranker
-  by default, since there is no standard OpenAI rerank API). See the
-  "OpenAI-Compatible Embedding Provider" / "OpenAI-Compatible Generate Provider"
-  / "Disabling Reranking" sections below.
+  by default, since there is no standard OpenAI rerank API). Full configuration
+  reference: [docs/OPENAI-PROVIDERS.md](docs/OPENAI-PROVIDERS.md).
 
 All upstream behavior below is otherwise preserved.
 
@@ -570,98 +569,28 @@ Supported model families:
 > since vectors are not cross-compatible between models. The prompt format is
 > automatically adjusted for each model family.
 
-### OpenAI-Compatible Embedding Provider
+### OpenAI-Compatible Providers (fork feature)
 
-Instead of local GGUF models, embeddings can be served by any OpenAI-compatible
-`/v1/embeddings` endpoint (e.g. Gabia AI Hub, vLLM, Ollama's OpenAI shim, LocalAI).
-This is useful when you already run a shared embedding service or want to avoid
-downloading GGUF weights locally.
-
-Set the embed model to `openai:<model-name>` and provide the endpoint + key:
+QMDx can route embeddings (`/v1/embeddings`) and query expansion
+(`/v1/chat/completions`) to remote OpenAI-compatible HTTP endpoints via the
+`openai:<model>` scheme, and disable reranking with `QMD_RERANK_MODEL=none`.
+This lets you run QMDx without downloading any local GGUF weights — for
+example entirely against Gabia AI Hub with `bge-m3` + `minimax`.
 
 ```sh
 export QMD_EMBED_MODEL="openai:bge-m3"
-export QMD_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
-export QMD_OPENAI_API_KEY="sk-..."
-# Optional: texts per /embeddings request (default 64)
-# export QMD_OPENAI_EMBED_BATCH_SIZE=64
-
-qmdx embed -f   # (re-)embed using the remote model
-qmdx vsearch "your query"
-```
-
-How it works:
-- `QMD_EMBED_MODEL=openai:bge-m3` activates the HTTP provider for embeddings only.
-- Query expansion can also use an OpenAI-compatible endpoint — see
-  [OpenAI-Compatible Generate Provider](#openai-compatible-generate-provider-query-expansion).
-- Reranking still uses the configured local GGUF `rerank` model.
-- Text chunking uses a token-count approximation (1 token ~= 4 chars) since no
-  local tokenizer is available; chunk boundaries are heuristic but respect the
-  model's context-size limit.
-- The vector table auto-adapts to the returned dimensionality (e.g. bge-m3 = 1024d).
-
-> **Note:** You can also pin `embed: openai:bge-m3` under the `models:` section
-> of `index.yml` so the choice persists without re-exporting env vars every run.
-
-### OpenAI-Compatible Generate Provider (Query Expansion)
-
-Query expansion (`expandQuery`, used by `qmd query`) can also be served by an
-OpenAI-compatible `/v1/chat/completions` endpoint. Set the generate model to
-`openai:<model>` and reuse the same base URL + key:
-
-```sh
 export QMD_GENERATE_MODEL="openai:minimax"
+export QMD_RERANK_MODEL="none"
 export QMD_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
 export QMD_OPENAI_API_KEY="sk-..."
-# Optional: raise for reasoning models whose chain-of-thought eats the budget
-# export QMD_OPENAI_CHAT_MAX_TOKENS=4000
 
-qmdx query "your query" --no-rerank   # expand (minimax) + search (bge-m3)
+qmdx embed -f          # index + embed via remote bge-m3
+qmdx query "..."       # expand (minimax) + search (bge-m3), no rerank
 ```
 
-How it works:
-- The local Qwen3 path uses a GBNF grammar to force the `lex:/vec:/hyde:` line
-  format; the OpenAI path replaces it with prose instructions and parses the
-  same line format from the response, so both providers are interchangeable.
-- Reasoning models (e.g. `minimax`) put chain-of-thought in
-  `reasoning_content` and the final answer in `content`; only `content` is
-  read, but a generous `max_tokens` is required or the request ends with
-  `finish_reason=length` and `content=null` (raise `QMD_OPENAI_CHAT_MAX_TOKENS`).
-- On any error the expansion falls back to the original query, so search still
-  returns results.
-- Reranking still uses the configured local GGUF model unless `--no-rerank` is
-  passed, `QMD_RERANK_MODEL=none` is set (see below), or the rerank provider
-  is also switched (no standard OpenAI rerank API exists today).
-
-### Disabling Reranking
-
-Reranking is on by default and pulls the local `Qwen3-Reranker` GGUF (~600MB)
-on first use. To skip it entirely — e.g. when running fully against remote
-OpenAI-compatible providers with no rerank endpoint — set the rerank model to a
-sentinel value:
-
-```sh
-export QMD_RERANK_MODEL="none"   # also accepts disabled/off/false/no
-qmdx query "your query"          # no --no-rerank needed, no GGUF download
-```
-
-Or pin it in `index.yml`:
-
-```yaml
-models:
-  embed: openai:bge-m3
-  generate: openai:minimax
-  rerank: none                    # skip reranking
-```
-
-With reranking disabled, `qmd query` returns results ranked by RRF
-(BM25 + vector) scores only — fast and dependency-free, at the cost of the
-final relevance pass.
-
-> **Note:** `expandQuery` reads the model URI from the `LlamaCpp` instance,
-> which resolves `QMD_GENERATE_MODEL` env first, then `index.yml`'s
-> `models.generate`. To switch providers via config file only, edit
-> `models.generate` in `index.yml`; otherwise export the env var.
+For the full configuration reference (all env vars, `index.yml` persistence,
+resolution precedence, reasoning-model tuning, and an end-to-end verification
+walkthrough), see **[docs/OPENAI-PROVIDERS.md](docs/OPENAI-PROVIDERS.md)**.
 
 ## Installation
 
