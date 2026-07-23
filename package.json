@@ -1,5 +1,5 @@
 {
-  "name": "qmdx",
+  "name": "@songth/qmdx",
   "version": "2.6.3",
   "description": "Query Markup Documents - On-device hybrid search for markdown files with BM25, vector search, and LLM reranking",
   "type": "module",
@@ -24,11 +24,15 @@
     "scripts/check-package-grammars.mjs",
     "scripts/package-smoke.mjs",
     "scripts/test-all.mjs",
+    "scripts/swap-readme.mjs",
+    "README.npm.md",
     "LICENSE",
     "CHANGELOG.md"
   ],
   "scripts": {
     "prepare": "node scripts/prepare.mjs",
+    "prepublishOnly": "node scripts/swap-readme.mjs to-npm",
+    "postpublish": "node scripts/swap-readme.mjs restore",
     "build": "node scripts/build.mjs",
     "test": "node scripts/test-all.mjs",
     "test:types": "node ./node_modules/typescript/bin/tsc -p tsconfig.build.json --noEmit",
@@ -119,6 +123,6 @@
     "local-ai",
     "llm"
   ],
-  "author": "Tobi Lutke <tobi@lutke.com>",
+  "author": "Will <sth@gabia.com>",
   "license": "MIT"
 }
