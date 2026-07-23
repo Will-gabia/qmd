@@ -1,4 +1,4 @@
-# QMDx - Query Markup Documents
+# QMDx - Query Markdown Documents
 
 **항상 한국어로 답변하세요.** 사용자가 다른 언어를 명시하지 않는 한 모든 응답은 한국어로 작성합니다. 코드 블록·명령어·식별자는 원문 그대로 두되, 설명과 요약은 한국어로 작성합니다. 이 규칙을 절대 잊지 마세요.
 

@@ -1,4 +1,4 @@
-# QMDx - Query Markup Documents
+# QMDx - Query Markdown Documents
 
 An on-device search engine for everything you need to remember. Index your
 markdown notes, meeting transcripts, documentation, and knowledge bases. Search
