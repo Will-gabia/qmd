@@ -9,7 +9,7 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const fixtures: string[] = [];
 
 function makeTempFixture() {
-  const root = mkdtempSync(join(tmpdir(), "qmd-bin-wrapper-"));
+  const root = mkdtempSync(join(tmpdir(), "qmdx-bin-wrapper-"));
   fixtures.push(root);
   const capturePath = join(root, "capture.txt");
   const runtimeBin = join(root, "runtime-bin");
@@ -21,7 +21,7 @@ function makeTempFixture() {
       writeFileSync(
         runtimePath,
         `#!/bin/sh
-if [ "$(basename "$1")" = "qmd" ]; then
+if [ "$(basename "$1")" = "qmdx" ]; then
   exec "${process.execPath}" "$@"
 else
   {
@@ -29,14 +29,14 @@ else
     printf '%s\\n' "$1"
     shift
     printf '%s\\n' "$@"
-  } > "$QMD_WRAPPER_CAPTURE"
+  } > "$QMDX_WRAPPER_CAPTURE"
 fi
 `,
       );
     } else {
       writeFileSync(
         runtimePath,
-        `#!/bin/sh\n{\n  printf '%s\\n' '${runtime}'\n  printf '%s\\n' "$1"\n  shift\n  printf '%s\\n' "$@"\n} > "$QMD_WRAPPER_CAPTURE"\n`,
+        `#!/bin/sh\n{\n  printf '%s\\n' '${runtime}'\n  printf '%s\\n' "$1"\n  shift\n  printf '%s\\n' "$@"\n} > "$QMDX_WRAPPER_CAPTURE"\n`,
       );
     }
     chmodSync(runtimePath, 0o755);
@@ -49,15 +49,15 @@ function makePackage(root: string, packagePath: string, lockfiles: string[] = []
   const packageRoot = join(root, packagePath);
   const includeDist = options.dist ?? true;
   mkdirSync(join(packageRoot, "bin"), { recursive: true });
-  copyFileSync(join(repoRoot, "bin", "qmd"), join(packageRoot, "bin", "qmd"));
-  chmodSync(join(packageRoot, "bin", "qmd"), 0o755);
+  copyFileSync(join(repoRoot, "bin", "qmdx"), join(packageRoot, "bin", "qmdx"));
+  chmodSync(join(packageRoot, "bin", "qmdx"), 0o755);
   if (includeDist) {
     mkdirSync(join(packageRoot, "dist", "cli"), { recursive: true });
-    writeFileSync(join(packageRoot, "dist", "cli", "qmd.js"), "// fixture\n");
+    writeFileSync(join(packageRoot, "dist", "cli", "qmdx.js"), "// fixture\n");
   }
   if (options.source) {
     mkdirSync(join(packageRoot, "src", "cli"), { recursive: true });
-    writeFileSync(join(packageRoot, "src", "cli", "qmd.ts"), "// source fixture\n");
+    writeFileSync(join(packageRoot, "src", "cli", "qmdx.ts"), "// source fixture\n");
   }
   if (options.tsx) {
     mkdirSync(join(packageRoot, "node_modules", "tsx", "dist"), { recursive: true });
@@ -84,7 +84,7 @@ function runWrapper(commandPath: string, runtimeBin: string, capturePath: string
       ...process.env,
       ...env,
       PATH: `${runtimeBin}:${process.env.PATH ?? ""}`,
-      QMD_WRAPPER_CAPTURE: capturePath,
+      QMDX_WRAPPER_CAPTURE: capturePath,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -99,144 +99,144 @@ afterEach(() => {
 });
 
 describe("bin/qmd package wrapper", () => {
-  test("direct package invocation resolves dist/cli/qmd.js from the package root", () => {
+  test("direct package invocation resolves dist/cli/qmdx.js from the package root", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "node_modules/@tobilu/qmd");
+    const packageRoot = makePackage(root, "node_modules/qmdx");
 
-    const result = runWrapper(join(packageRoot, "bin", "qmd"), runtimeBin, capturePath);
+    const result = runWrapper(join(packageRoot, "bin", "qmdx"), runtimeBin, capturePath);
 
     expect(result.runtime).toBe("node");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
     expect(result.args).toEqual(["--version"]);
   });
 
   test("npm/Homebrew global bin symlink resolves scoped package path", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "opt/homebrew/lib/node_modules/@tobilu/qmd");
-    const globalBin = join(root, "opt", "homebrew", "bin", "qmd");
-    symlinkRelative(join(packageRoot, "bin", "qmd"), globalBin);
+    const packageRoot = makePackage(root, "opt/homebrew/lib/node_modules/qmdx");
+    const globalBin = join(root, "opt", "homebrew", "bin", "qmdx");
+    symlinkRelative(join(packageRoot, "bin", "qmdx"), globalBin);
 
     const result = runWrapper(globalBin, runtimeBin, capturePath);
 
     expect(result.runtime).toBe("node");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
   test("multi-hop global bin symlink chain resolves to the real package root", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "opt/homebrew/lib/node_modules/@tobilu/qmd");
-    const globalBin = join(root, "opt", "homebrew", "bin", "qmd");
-    const shim = join(root, "opt", "homebrew", "Cellar", "qmd", "current", "bin", "qmd");
-    symlinkRelative(join(packageRoot, "bin", "qmd"), shim);
+    const packageRoot = makePackage(root, "opt/homebrew/lib/node_modules/qmdx");
+    const globalBin = join(root, "opt", "homebrew", "bin", "qmdx");
+    const shim = join(root, "opt", "homebrew", "Cellar", "qmdx", "current", "bin", "qmdx");
+    symlinkRelative(join(packageRoot, "bin", "qmdx"), shim);
     symlinkRelative(shim, globalBin);
 
     const result = runWrapper(globalBin, runtimeBin, capturePath);
 
     expect(result.runtime).toBe("node");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
   test("linuxbrew global bin symlink resolves lib/node_modules scoped package path", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "home/linuxbrew/.linuxbrew/lib/node_modules/@tobilu/qmd");
-    const globalBin = join(root, "home", "linuxbrew", ".linuxbrew", "bin", "qmd");
-    symlinkRelative(join(packageRoot, "bin", "qmd"), globalBin);
+    const packageRoot = makePackage(root, "home/linuxbrew/.linuxbrew/lib/node_modules/qmdx");
+    const globalBin = join(root, "home", "linuxbrew", ".linuxbrew", "bin", "qmdx");
+    symlinkRelative(join(packageRoot, "bin", "qmdx"), globalBin);
 
     const result = runWrapper(globalBin, runtimeBin, capturePath);
 
     expect(result.runtime).toBe("node");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
-  test("npx scoped package .bin symlink resolves @tobilu/qmd package path", () => {
+  test("npx scoped package .bin symlink resolves qmdx package path", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "npm/_npx/abc123/node_modules/@tobilu/qmd");
-    const npxBin = join(root, "npm", "_npx", "abc123", "node_modules", ".bin", "qmd");
-    symlinkRelative(join(packageRoot, "bin", "qmd"), npxBin);
+    const packageRoot = makePackage(root, "npm/_npx/abc123/node_modules/qmdx");
+    const npxBin = join(root, "npm", "_npx", "abc123", "node_modules", ".bin", "qmdx");
+    symlinkRelative(join(packageRoot, "bin", "qmdx"), npxBin);
 
     const result = runWrapper(npxBin, runtimeBin, capturePath);
 
     expect(result.runtime).toBe("node");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
   test("bun global symlink uses bun when package-local bun lockfile exists", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "home/user/.bun/install/global/node_modules/@tobilu/qmd", ["bun.lock"]);
-    const bunBin = join(root, "home", "user", ".bun", "bin", "qmd");
-    symlinkRelative(join(packageRoot, "bin", "qmd"), bunBin);
+    const packageRoot = makePackage(root, "home/user/.bun/install/global/node_modules/qmdx", ["bun.lock"]);
+    const bunBin = join(root, "home", "user", ".bun", "bin", "qmdx");
+    symlinkRelative(join(packageRoot, "bin", "qmdx"), bunBin);
 
     const result = runWrapper(bunBin, runtimeBin, capturePath);
 
     expect(result.runtime).toBe("bun");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
   test("bun global install with bun.lock at the install root uses bun", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "home/user/.bun/install/global/node_modules/@tobilu/qmd");
+    const packageRoot = makePackage(root, "home/user/.bun/install/global/node_modules/qmdx");
     writeFileSync(join(root, "home", "user", ".bun", "install", "global", "bun.lock"), "");
-    const bunBin = join(root, "home", "user", ".bun", "bin", "qmd");
-    symlinkRelative(join(packageRoot, "bin", "qmd"), bunBin);
+    const bunBin = join(root, "home", "user", ".bun", "bin", "qmdx");
+    symlinkRelative(join(packageRoot, "bin", "qmdx"), bunBin);
 
     const result = runWrapper(bunBin, runtimeBin, capturePath);
 
     expect(result.runtime).toBe("bun");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
   test("package-lock.json at the install root keeps npm priority", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "project/node_modules/@tobilu/qmd");
+    const packageRoot = makePackage(root, "project/node_modules/qmdx");
     writeFileSync(join(root, "project", "package-lock.json"), "");
     writeFileSync(join(root, "project", "bun.lock"), "");
 
-    const result = runWrapper(join(packageRoot, "bin", "qmd"), runtimeBin, capturePath);
+    const result = runWrapper(join(packageRoot, "bin", "qmdx"), runtimeBin, capturePath);
 
     expect(result.runtime).toBe("node");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
   test("ambient BUN_INSTALL alone does not select bun for an npm-installed package", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "opt/homebrew/lib/node_modules/@tobilu/qmd");
-    const globalBin = join(root, "opt", "homebrew", "bin", "qmd");
-    symlinkRelative(join(packageRoot, "bin", "qmd"), globalBin);
+    const packageRoot = makePackage(root, "opt/homebrew/lib/node_modules/qmdx");
+    const globalBin = join(root, "opt", "homebrew", "bin", "qmdx");
+    symlinkRelative(join(packageRoot, "bin", "qmdx"), globalBin);
 
     const result = runWrapper(globalBin, runtimeBin, capturePath, { BUN_INSTALL: join(root, ".bun") });
 
     expect(result.runtime).toBe("node");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
   test("package-lock.json takes priority over bun lockfiles", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "node_modules/@tobilu/qmd", ["package-lock.json", "bun.lock"]);
+    const packageRoot = makePackage(root, "node_modules/qmdx", ["package-lock.json", "bun.lock"]);
 
-    const result = runWrapper(join(packageRoot, "bin", "qmd"), runtimeBin, capturePath);
+    const result = runWrapper(join(packageRoot, "bin", "qmdx"), runtimeBin, capturePath);
 
     expect(result.runtime).toBe("node");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
   test("packaged tree uses dist even if source files are present", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
-    const packageRoot = makePackage(root, "node_modules/@tobilu/qmd", ["bun.lock"], { source: true });
+    const packageRoot = makePackage(root, "node_modules/qmdx", ["bun.lock"], { source: true });
 
-    const result = runWrapper(join(packageRoot, "bin", "qmd"), runtimeBin, capturePath);
+    const result = runWrapper(join(packageRoot, "bin", "qmdx"), runtimeBin, capturePath);
 
     expect(result.runtime).toBe("bun");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmd.js")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "dist", "cli", "qmdx.js")));
   });
 
   test("prefers source with bun in a Bun checkout even when dist exists", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
     const packageRoot = makePackage(root, "qmd", ["bun.lock"], { source: true, git: true });
 
-    const result = runWrapper(join(packageRoot, "bin", "qmd"), runtimeBin, capturePath);
+    const result = runWrapper(join(packageRoot, "bin", "qmdx"), runtimeBin, capturePath);
 
     expect(result.runtime).toBe("bun");
-    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "src", "cli", "qmd.ts")));
+    expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "src", "cli", "qmdx.ts")));
     expect(result.args).toEqual(["--version"]);
   });
 
@@ -244,11 +244,11 @@ describe("bin/qmd package wrapper", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
     const packageRoot = makePackage(root, "qmd", [], { source: true, tsx: true, git: true });
 
-    const result = runWrapper(join(packageRoot, "bin", "qmd"), runtimeBin, capturePath);
+    const result = runWrapper(join(packageRoot, "bin", "qmdx"), runtimeBin, capturePath);
 
     expect(result.runtime).toBe("node");
     expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "node_modules", "tsx", "dist", "cli.mjs")));
-    expect(result.args).toEqual([realpathSync(join(packageRoot, "src", "cli", "qmd.ts")), "--version"]);
+    expect(result.args).toEqual([realpathSync(join(packageRoot, "src", "cli", "qmdx.ts")), "--version"]);
   });
 
   test("source checkout with both bun.lock and package-lock.json prefers node+tsx", () => {
@@ -259,18 +259,18 @@ describe("bin/qmd package wrapper", () => {
     const { root, runtimeBin, capturePath } = makeTempFixture();
     const packageRoot = makePackage(root, "qmd", ["bun.lock", "package-lock.json"], { source: true, tsx: true, git: true });
 
-    const result = runWrapper(join(packageRoot, "bin", "qmd"), runtimeBin, capturePath);
+    const result = runWrapper(join(packageRoot, "bin", "qmdx"), runtimeBin, capturePath);
 
     expect(result.runtime).toBe("node");
     expect(result.scriptPath).toBe(realpathSync(join(packageRoot, "node_modules", "tsx", "dist", "cli.mjs")));
-    expect(result.args).toEqual([realpathSync(join(packageRoot, "src", "cli", "qmd.ts")), "--version"]);
+    expect(result.args).toEqual([realpathSync(join(packageRoot, "src", "cli", "qmdx.ts")), "--version"]);
   });
 
   test("explains how to build when dist is missing and source cannot run", () => {
     const { root, runtimeBin } = makeTempFixture();
     const packageRoot = makePackage(root, "qmd", [], { dist: false });
 
-    const result = spawnSync(join(packageRoot, "bin", "qmd"), ["--version"], {
+    const result = spawnSync(join(packageRoot, "bin", "qmdx"), ["--version"], {
       env: {
         ...process.env,
         PATH: `${runtimeBin}:${process.env.PATH ?? ""}`,
@@ -280,9 +280,9 @@ describe("bin/qmd package wrapper", () => {
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("qmd is not built");
+    expect(result.stderr).toContain("qmdx is not built");
     expect(result.stderr).toContain("bun install && bun run build");
     expect(result.stderr).toContain("npm install && npm run build");
-    expect(result.stderr).toContain("qmd doctor");
+    expect(result.stderr).toContain("qmdx doctor");
   });
 });

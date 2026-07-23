@@ -1,7 +1,7 @@
 /**
  * Unit tests for collection config path resolution (PR #190).
  *
- * Tests that getConfigDir() respects XDG_CONFIG_HOME, QMD_CONFIG_DIR,
+ * Tests that getConfigDir() respects XDG_CONFIG_HOME, QMDX_CONFIG_DIR,
  * and falls back to ~/.config/qmd.
  */
 
@@ -19,7 +19,7 @@ beforeEach(() => {
   savedEnv = {
     HOME: process.env.HOME,
     USERPROFILE: process.env.USERPROFILE,
-    QMD_CONFIG_DIR: process.env.QMD_CONFIG_DIR,
+    QMDX_CONFIG_DIR: process.env.QMDX_CONFIG_DIR,
     XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
   };
   // Reset index name to default
@@ -40,55 +40,55 @@ afterEach(() => {
 
 describe("getConfigDir via getConfigPath", () => {
   test("defaults to ~/.config/qmd when no env vars are set", () => {
-    delete process.env.QMD_CONFIG_DIR;
+    delete process.env.QMDX_CONFIG_DIR;
     delete process.env.XDG_CONFIG_HOME;
-    expect(getConfigPath()).toBe(join(qmdHomedir(), ".config", "qmd", "index.yml"));
+    expect(getConfigPath()).toBe(join(qmdHomedir(), ".config", "qmdx", "index.yml"));
   });
 
   test("uses the same USERPROFILE fallback as default DB path when HOME is unset", () => {
     delete process.env.HOME;
-    delete process.env.QMD_CONFIG_DIR;
+    delete process.env.QMDX_CONFIG_DIR;
     delete process.env.XDG_CONFIG_HOME;
     process.env.USERPROFILE = "/Users/windows-user";
 
-    expect(getConfigPath()).toBe(join("/Users/windows-user", ".config", "qmd", "index.yml"));
+    expect(getConfigPath()).toBe(join("/Users/windows-user", ".config", "qmdx", "index.yml"));
   });
 
-  test("QMD_CONFIG_DIR takes highest priority", () => {
-    process.env.QMD_CONFIG_DIR = "/custom/qmd-config";
+  test("QMDX_CONFIG_DIR takes highest priority", () => {
+    process.env.QMDX_CONFIG_DIR = "/custom/qmd-config";
     process.env.XDG_CONFIG_HOME = "/xdg/config";
     expect(getConfigPath()).toBe(join("/custom/qmd-config", "index.yml"));
   });
 
-  test("XDG_CONFIG_HOME is used when QMD_CONFIG_DIR is not set", () => {
-    delete process.env.QMD_CONFIG_DIR;
+  test("XDG_CONFIG_HOME is used when QMDX_CONFIG_DIR is not set", () => {
+    delete process.env.QMDX_CONFIG_DIR;
     process.env.XDG_CONFIG_HOME = "/xdg/config";
-    expect(getConfigPath()).toBe(join("/xdg/config", "qmd", "index.yml"));
+    expect(getConfigPath()).toBe(join("/xdg/config", "qmdx", "index.yml"));
   });
 
   test("XDG_CONFIG_HOME appends qmd subdirectory", () => {
-    delete process.env.QMD_CONFIG_DIR;
+    delete process.env.QMDX_CONFIG_DIR;
     process.env.XDG_CONFIG_HOME = "/home/agent/.config";
-    expect(getConfigPath()).toBe(join("/home/agent/.config", "qmd", "index.yml"));
+    expect(getConfigPath()).toBe(join("/home/agent/.config", "qmdx", "index.yml"));
   });
 
-  test("QMD_CONFIG_DIR overrides XDG_CONFIG_HOME", () => {
-    process.env.QMD_CONFIG_DIR = "/override";
+  test("QMDX_CONFIG_DIR overrides XDG_CONFIG_HOME", () => {
+    process.env.QMDX_CONFIG_DIR = "/override";
     process.env.XDG_CONFIG_HOME = "/should-not-use";
     expect(getConfigPath()).toBe(join("/override", "index.yml"));
   });
 
   test("respects custom index name", () => {
-    delete process.env.QMD_CONFIG_DIR;
+    delete process.env.QMDX_CONFIG_DIR;
     process.env.XDG_CONFIG_HOME = "/xdg/config";
     setConfigIndexName("myindex");
-    expect(getConfigPath()).toBe(join("/xdg/config", "qmd", "myindex.yml"));
+    expect(getConfigPath()).toBe(join("/xdg/config", "qmdx", "myindex.yml"));
   });
 
   test("loadConfig treats an empty YAML file as an empty config", async () => {
     const dir = await mkdtemp(join(tmpdir(), "qmd-empty-config-"));
     try {
-      process.env.QMD_CONFIG_DIR = dir;
+      process.env.QMDX_CONFIG_DIR = dir;
       await writeFile(join(dir, "index.yml"), "");
       expect(loadConfig()).toEqual({ collections: {} });
     } finally {

@@ -1,8 +1,8 @@
 /**
- * QMD SDK - Library mode for programmatic access to QMD search and indexing.
+ * QMDx SDK - Library mode for programmatic access to QMDx search and indexing.
  *
  * Usage:
- *   import { createStore } from '@tobilu/qmd'
+ *   import { createStore } from 'qmdx'
  *
  *   const store = await createStore({
  *     dbPath: './my-index.sqlite',
@@ -212,7 +212,7 @@ export interface StoreOptions {
 }
 
 /**
- * The QMD SDK store — provides search, retrieval, collection management,
+ * The QMDx SDK store — provides search, retrieval, collection management,
  * context management, and indexing operations.
  *
  * All methods are async. The store manages its own LlamaCpp instance

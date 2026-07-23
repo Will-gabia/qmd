@@ -31,9 +31,9 @@ import {
 describe("model name resolution", () => {
   function withModelEnv(env: Record<string, string | undefined>, fn: () => void): void {
     const previous = {
-      QMD_EMBED_MODEL: process.env.QMD_EMBED_MODEL,
-      QMD_GENERATE_MODEL: process.env.QMD_GENERATE_MODEL,
-      QMD_RERANK_MODEL: process.env.QMD_RERANK_MODEL,
+      QMDX_EMBED_MODEL: process.env.QMDX_EMBED_MODEL,
+      QMDX_GENERATE_MODEL: process.env.QMDX_GENERATE_MODEL,
+      QMDX_RERANK_MODEL: process.env.QMDX_RERANK_MODEL,
     };
     try {
       for (const [key, value] of Object.entries(env)) {
@@ -51,9 +51,9 @@ describe("model name resolution", () => {
 
   test("all model roles resolve config hints before env fallbacks", () => {
     withModelEnv({
-      QMD_EMBED_MODEL: "env-embed",
-      QMD_GENERATE_MODEL: "env-generate",
-      QMD_RERANK_MODEL: "env-rerank",
+      QMDX_EMBED_MODEL: "env-embed",
+      QMDX_GENERATE_MODEL: "env-generate",
+      QMDX_RERANK_MODEL: "env-rerank",
     }, () => {
       const config = {
         embed: "config-embed",
@@ -69,9 +69,9 @@ describe("model name resolution", () => {
 
   test("LlamaCpp constructor uses the same resolver as status/embed/query helpers", () => {
     withModelEnv({
-      QMD_EMBED_MODEL: "env-embed",
-      QMD_GENERATE_MODEL: "env-generate",
-      QMD_RERANK_MODEL: "env-rerank",
+      QMDX_EMBED_MODEL: "env-embed",
+      QMDX_GENERATE_MODEL: "env-generate",
+      QMDX_RERANK_MODEL: "env-rerank",
     }, () => {
       const llm = new LlamaCpp({
         embedModel: "config-embed",
@@ -121,7 +121,7 @@ describe("LlamaCpp.modelExists", () => {
   });
 });
 
-describe("QMD_LLAMA_GPU resolution", () => {
+describe("QMDX_LLAMA_GPU resolution", () => {
   test("uses auto when unset or blank", () => {
     expect(resolveLlamaGpuMode(undefined)).toBe("auto");
     expect(resolveLlamaGpuMode("   ")).toBe("auto");
@@ -141,26 +141,26 @@ describe("QMD_LLAMA_GPU resolution", () => {
     expect(resolveLlamaGpuMode(" cuda ")).toBe("cuda");
   });
 
-  test("QMD_FORCE_CPU disables GPU before QMD_LLAMA_GPU auto-detection", () => {
-    const prevForceCpu = process.env.QMD_FORCE_CPU;
-    process.env.QMD_FORCE_CPU = "1";
+  test("QMDX_FORCE_CPU disables GPU before QMDX_LLAMA_GPU auto-detection", () => {
+    const prevForceCpu = process.env.QMDX_FORCE_CPU;
+    process.env.QMDX_FORCE_CPU = "1";
     try {
       expect(resolveLlamaGpuMode(undefined)).toBe(false);
       expect(resolveLlamaGpuMode("cuda")).toBe(false);
     } finally {
-      if (prevForceCpu === undefined) delete process.env.QMD_FORCE_CPU;
-      else process.env.QMD_FORCE_CPU = prevForceCpu;
+      if (prevForceCpu === undefined) delete process.env.QMDX_FORCE_CPU;
+      else process.env.QMDX_FORCE_CPU = prevForceCpu;
     }
   });
 
-  test("QMD_FORCE_CPU ignores false-ish values", () => {
-    const prevForceCpu = process.env.QMD_FORCE_CPU;
-    process.env.QMD_FORCE_CPU = "0";
+  test("QMDX_FORCE_CPU ignores false-ish values", () => {
+    const prevForceCpu = process.env.QMDX_FORCE_CPU;
+    process.env.QMDX_FORCE_CPU = "0";
     try {
       expect(resolveLlamaGpuMode(undefined)).toBe("auto");
     } finally {
-      if (prevForceCpu === undefined) delete process.env.QMD_FORCE_CPU;
-      else process.env.QMD_FORCE_CPU = prevForceCpu;
+      if (prevForceCpu === undefined) delete process.env.QMDX_FORCE_CPU;
+      else process.env.QMDX_FORCE_CPU = prevForceCpu;
     }
   });
 
@@ -169,7 +169,7 @@ describe("QMD_LLAMA_GPU resolution", () => {
     try {
       expect(resolveLlamaGpuMode("rocm")).toBe("auto");
       expect(stderrSpy).toHaveBeenCalled();
-      expect(String(stderrSpy.mock.calls[0]?.[0] || "")).toContain("QMD_LLAMA_GPU");
+      expect(String(stderrSpy.mock.calls[0]?.[0] || "")).toContain("QMDX_LLAMA_GPU");
     } finally {
       stderrSpy.mockRestore();
     }
@@ -195,10 +195,10 @@ describe("native llama stdout containment", () => {
   });
 
   test("keeps native GPU failure noise off stdout and caches failed GPU init", async () => {
-    const prevGpu = process.env.QMD_LLAMA_GPU;
-    const prevForceCpu = process.env.QMD_FORCE_CPU;
-    process.env.QMD_LLAMA_GPU = "cuda";
-    delete process.env.QMD_FORCE_CPU;
+    const prevGpu = process.env.QMDX_LLAMA_GPU;
+    const prevForceCpu = process.env.QMDX_FORCE_CPU;
+    process.env.QMDX_LLAMA_GPU = "cuda";
+    delete process.env.QMDX_FORCE_CPU;
 
     const calls: unknown[] = [];
     const fakeLlama = { gpu: false, cpuMathCores: 4 };
@@ -233,18 +233,18 @@ describe("native llama stdout containment", () => {
       stdoutSpy.mockRestore();
       stderrSpy.mockRestore();
       setNodeLlamaCppModuleForTest(null);
-      if (prevGpu === undefined) delete process.env.QMD_LLAMA_GPU;
-      else process.env.QMD_LLAMA_GPU = prevGpu;
-      if (prevForceCpu === undefined) delete process.env.QMD_FORCE_CPU;
-      else process.env.QMD_FORCE_CPU = prevForceCpu;
+      if (prevGpu === undefined) delete process.env.QMDX_LLAMA_GPU;
+      else process.env.QMDX_LLAMA_GPU = prevGpu;
+      if (prevForceCpu === undefined) delete process.env.QMDX_FORCE_CPU;
+      else process.env.QMDX_FORCE_CPU = prevForceCpu;
     }
   });
 
   test("warns about CPU fallback only once per process", async () => {
-    const prevGpu = process.env.QMD_LLAMA_GPU;
-    const prevForceCpu = process.env.QMD_FORCE_CPU;
-    process.env.QMD_LLAMA_GPU = "false";
-    delete process.env.QMD_FORCE_CPU;
+    const prevGpu = process.env.QMDX_LLAMA_GPU;
+    const prevForceCpu = process.env.QMDX_FORCE_CPU;
+    process.env.QMDX_LLAMA_GPU = "false";
+    delete process.env.QMDX_FORCE_CPU;
 
     setNodeLlamaCppModuleForTest({
       LlamaLogLevel: { error: "error" },
@@ -264,22 +264,22 @@ describe("native llama stdout containment", () => {
       const stderr = String(stderrSpy.mock.calls.map(call => call[0]).join(""));
       expect(stderr.match(/no GPU acceleration/g)?.length).toBe(1);
       expect(stderr).toContain("qmd doctor");
-      expect(stderr).not.toContain("QMD_STATUS_DEVICE_PROBE");
+      expect(stderr).not.toContain("QMDX_STATUS_DEVICE_PROBE");
     } finally {
       stderrSpy.mockRestore();
       setNodeLlamaCppModuleForTest(null);
-      if (prevGpu === undefined) delete process.env.QMD_LLAMA_GPU;
-      else process.env.QMD_LLAMA_GPU = prevGpu;
-      if (prevForceCpu === undefined) delete process.env.QMD_FORCE_CPU;
-      else process.env.QMD_FORCE_CPU = prevForceCpu;
+      if (prevGpu === undefined) delete process.env.QMDX_LLAMA_GPU;
+      else process.env.QMDX_LLAMA_GPU = prevGpu;
+      if (prevForceCpu === undefined) delete process.env.QMDX_FORCE_CPU;
+      else process.env.QMDX_FORCE_CPU = prevForceCpu;
     }
   });
 
-  test("embeds hello world with QMD_FORCE_CPU=1 without throwing", async () => {
-    const prevGpu = process.env.QMD_LLAMA_GPU;
-    const prevForceCpu = process.env.QMD_FORCE_CPU;
-    process.env.QMD_FORCE_CPU = "1";
-    process.env.QMD_LLAMA_GPU = "metal";
+  test("embeds hello world with QMDX_FORCE_CPU=1 without throwing", async () => {
+    const prevGpu = process.env.QMDX_LLAMA_GPU;
+    const prevForceCpu = process.env.QMDX_FORCE_CPU;
+    process.env.QMDX_FORCE_CPU = "1";
+    process.env.QMDX_LLAMA_GPU = "metal";
 
     const getEmbeddingFor = vi.fn(async (text: string) => ({
       vector: new Float32Array([0.1, 0.2, 0.3]),
@@ -325,10 +325,10 @@ describe("native llama stdout containment", () => {
       await llm.dispose();
       stderrSpy.mockRestore();
       setNodeLlamaCppModuleForTest(null);
-      if (prevGpu === undefined) delete process.env.QMD_LLAMA_GPU;
-      else process.env.QMD_LLAMA_GPU = prevGpu;
-      if (prevForceCpu === undefined) delete process.env.QMD_FORCE_CPU;
-      else process.env.QMD_FORCE_CPU = prevForceCpu;
+      if (prevGpu === undefined) delete process.env.QMDX_LLAMA_GPU;
+      else process.env.QMDX_LLAMA_GPU = prevGpu;
+      if (prevForceCpu === undefined) delete process.env.QMDX_FORCE_CPU;
+      else process.env.QMDX_FORCE_CPU = prevForceCpu;
     }
   });
 });
@@ -349,7 +349,7 @@ describe("LLM context parallelism safety", () => {
     expect(resolveSafeParallelism({ gpu: false, platform: "win32", computed: 4 })).toBe(4);
   });
 
-  test("QMD_EMBED_PARALLELISM overrides the Windows CUDA safety default", () => {
+  test("QMDX_EMBED_PARALLELISM overrides the Windows CUDA safety default", () => {
     expect(resolveSafeParallelism({
       gpu: "cuda",
       platform: "win32",
@@ -358,13 +358,13 @@ describe("LLM context parallelism safety", () => {
     })).toBe(2);
   });
 
-  test("QMD_EMBED_PARALLELISM clamps invalid values and warns", () => {
+  test("QMDX_EMBED_PARALLELISM clamps invalid values and warns", () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     try {
       expect(resolveParallelismOverride("0")).toBeUndefined();
       expect(resolveParallelismOverride("bad")).toBeUndefined();
       expect(stderrSpy).toHaveBeenCalledTimes(2);
-      expect(String(stderrSpy.mock.calls[0]?.[0] || "")).toContain("QMD_EMBED_PARALLELISM");
+      expect(String(stderrSpy.mock.calls[0]?.[0] || "")).toContain("QMDX_EMBED_PARALLELISM");
     } finally {
       stderrSpy.mockRestore();
     }
@@ -375,54 +375,54 @@ describe("LlamaCpp expand context size config", () => {
   const defaultExpandContextSize = 2048;
 
   test("uses default expand context size when no config or env is set", () => {
-    const prev = process.env.QMD_EXPAND_CONTEXT_SIZE;
-    delete process.env.QMD_EXPAND_CONTEXT_SIZE;
+    const prev = process.env.QMDX_EXPAND_CONTEXT_SIZE;
+    delete process.env.QMDX_EXPAND_CONTEXT_SIZE;
     try {
       const llm = new LlamaCpp({}) as any;
       expect(llm.expandContextSize).toBe(defaultExpandContextSize);
     } finally {
-      if (prev === undefined) delete process.env.QMD_EXPAND_CONTEXT_SIZE;
-      else process.env.QMD_EXPAND_CONTEXT_SIZE = prev;
+      if (prev === undefined) delete process.env.QMDX_EXPAND_CONTEXT_SIZE;
+      else process.env.QMDX_EXPAND_CONTEXT_SIZE = prev;
     }
   });
 
-  test("uses QMD_EXPAND_CONTEXT_SIZE when set to a positive integer", () => {
-    const prev = process.env.QMD_EXPAND_CONTEXT_SIZE;
-    process.env.QMD_EXPAND_CONTEXT_SIZE = "3072";
+  test("uses QMDX_EXPAND_CONTEXT_SIZE when set to a positive integer", () => {
+    const prev = process.env.QMDX_EXPAND_CONTEXT_SIZE;
+    process.env.QMDX_EXPAND_CONTEXT_SIZE = "3072";
     try {
       const llm = new LlamaCpp({}) as any;
       expect(llm.expandContextSize).toBe(3072);
     } finally {
-      if (prev === undefined) delete process.env.QMD_EXPAND_CONTEXT_SIZE;
-      else process.env.QMD_EXPAND_CONTEXT_SIZE = prev;
+      if (prev === undefined) delete process.env.QMDX_EXPAND_CONTEXT_SIZE;
+      else process.env.QMDX_EXPAND_CONTEXT_SIZE = prev;
     }
   });
 
-  test("config value overrides QMD_EXPAND_CONTEXT_SIZE", () => {
-    const prev = process.env.QMD_EXPAND_CONTEXT_SIZE;
-    process.env.QMD_EXPAND_CONTEXT_SIZE = "4096";
+  test("config value overrides QMDX_EXPAND_CONTEXT_SIZE", () => {
+    const prev = process.env.QMDX_EXPAND_CONTEXT_SIZE;
+    process.env.QMDX_EXPAND_CONTEXT_SIZE = "4096";
     try {
       const llm = new LlamaCpp({ expandContextSize: 1536 }) as any;
       expect(llm.expandContextSize).toBe(1536);
     } finally {
-      if (prev === undefined) delete process.env.QMD_EXPAND_CONTEXT_SIZE;
-      else process.env.QMD_EXPAND_CONTEXT_SIZE = prev;
+      if (prev === undefined) delete process.env.QMDX_EXPAND_CONTEXT_SIZE;
+      else process.env.QMDX_EXPAND_CONTEXT_SIZE = prev;
     }
   });
 
-  test("falls back to default and warns when QMD_EXPAND_CONTEXT_SIZE is invalid", () => {
-    const prev = process.env.QMD_EXPAND_CONTEXT_SIZE;
-    process.env.QMD_EXPAND_CONTEXT_SIZE = "bad";
+  test("falls back to default and warns when QMDX_EXPAND_CONTEXT_SIZE is invalid", () => {
+    const prev = process.env.QMDX_EXPAND_CONTEXT_SIZE;
+    process.env.QMDX_EXPAND_CONTEXT_SIZE = "bad";
     const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     try {
       const llm = new LlamaCpp({}) as any;
       expect(llm.expandContextSize).toBe(defaultExpandContextSize);
       expect(stderrSpy).toHaveBeenCalled();
-      expect(String(stderrSpy.mock.calls[0]?.[0] || "")).toContain("QMD_EXPAND_CONTEXT_SIZE");
+      expect(String(stderrSpy.mock.calls[0]?.[0] || "")).toContain("QMDX_EXPAND_CONTEXT_SIZE");
     } finally {
       stderrSpy.mockRestore();
-      if (prev === undefined) delete process.env.QMD_EXPAND_CONTEXT_SIZE;
-      else process.env.QMD_EXPAND_CONTEXT_SIZE = prev;
+      if (prev === undefined) delete process.env.QMDX_EXPAND_CONTEXT_SIZE;
+      else process.env.QMDX_EXPAND_CONTEXT_SIZE = prev;
     }
   });
 
@@ -439,40 +439,40 @@ describe("LlamaCpp model resolution (config > env > default)", () => {
   const HARDCODED_GENERATE = "hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query-expansion-1.7B-q4_k_m.gguf";
 
   test("uses hardcoded default when no config or env is set", () => {
-    const prev = process.env.QMD_EMBED_MODEL;
-    delete process.env.QMD_EMBED_MODEL;
+    const prev = process.env.QMDX_EMBED_MODEL;
+    delete process.env.QMDX_EMBED_MODEL;
     try {
       const llm = new LlamaCpp({}) as any;
       expect(llm.embedModelUri).toBe(HARDCODED_EMBED);
       expect(llm.rerankModelUri).toBe(HARDCODED_RERANK);
       expect(llm.generateModelUri).toBe(HARDCODED_GENERATE);
     } finally {
-      if (prev === undefined) delete process.env.QMD_EMBED_MODEL;
-      else process.env.QMD_EMBED_MODEL = prev;
+      if (prev === undefined) delete process.env.QMDX_EMBED_MODEL;
+      else process.env.QMDX_EMBED_MODEL = prev;
     }
   });
 
   test("env var overrides hardcoded default", () => {
-    const prev = process.env.QMD_EMBED_MODEL;
-    process.env.QMD_EMBED_MODEL = "hf:custom/embed-model.gguf";
+    const prev = process.env.QMDX_EMBED_MODEL;
+    process.env.QMDX_EMBED_MODEL = "hf:custom/embed-model.gguf";
     try {
       const llm = new LlamaCpp({}) as any;
       expect(llm.embedModelUri).toBe("hf:custom/embed-model.gguf");
     } finally {
-      if (prev === undefined) delete process.env.QMD_EMBED_MODEL;
-      else process.env.QMD_EMBED_MODEL = prev;
+      if (prev === undefined) delete process.env.QMDX_EMBED_MODEL;
+      else process.env.QMDX_EMBED_MODEL = prev;
     }
   });
 
   test("config overrides env var", () => {
-    const prev = process.env.QMD_EMBED_MODEL;
-    process.env.QMD_EMBED_MODEL = "hf:env/model.gguf";
+    const prev = process.env.QMDX_EMBED_MODEL;
+    process.env.QMDX_EMBED_MODEL = "hf:env/model.gguf";
     try {
       const llm = new LlamaCpp({ embedModel: "hf:config/model.gguf" }) as any;
       expect(llm.embedModelUri).toBe("hf:config/model.gguf");
     } finally {
-      if (prev === undefined) delete process.env.QMD_EMBED_MODEL;
-      else process.env.QMD_EMBED_MODEL = prev;
+      if (prev === undefined) delete process.env.QMDX_EMBED_MODEL;
+      else process.env.QMDX_EMBED_MODEL = prev;
     }
   });
 });
@@ -684,7 +684,7 @@ describe.skipIf(!!process.env.CI)("LlamaCpp Integration", () => {
       // each concurrent embedBatch call sees embedContext === null and creates its own
       // context, causing resource leaks and potential "Context is disposed" errors.
       //
-      // See: https://github.com/tobi/qmd/pull/54
+      // See: llm.ts promise-guard for single-flight context creation
       //
       // The fix uses a promise guard to ensure only one context creation runs at a time.
       // We verify this by instrumenting createEmbeddingContext to count invocations.

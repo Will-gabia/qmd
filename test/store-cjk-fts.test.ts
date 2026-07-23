@@ -63,7 +63,7 @@ function freshDbPath(): string {
  */
 async function setEmptyConfig(): Promise<void> {
   const configDir = await mkdtemp(join(testDir, "config-"));
-  process.env.QMD_CONFIG_DIR = configDir;
+  process.env.QMDX_CONFIG_DIR = configDir;
   const emptyConfig: CollectionConfig = { collections: {} };
   await writeFile(join(configDir, "index.yml"), YAML.stringify(emptyConfig));
 }

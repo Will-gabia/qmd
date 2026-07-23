@@ -11,9 +11,9 @@ tags:
 pipeline_tag: text-generation
 ---
 
-# QMD Query Expansion Fine-Tuning
+# QMDx Query Expansion Fine-Tuning
 
-Train small language models to expand search queries for [QMD](https://github.com/tobi/qmd)'s hybrid retrieval pipeline.
+Train small language models to expand search queries for [QMDx](https://github.com/Will-gabia/qmdx)'s hybrid retrieval pipeline.
 
 ## What This Does
 

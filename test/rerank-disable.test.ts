@@ -1,7 +1,7 @@
 /**
  * Tests for rerank-disabling sentinel values.
  *
- * `QMD_RERANK_MODEL=none` (and similar sentinels) should make the resolved
+ * `QMDX_RERANK_MODEL=none` (and similar sentinels) should make the resolved
  * rerank model empty so the query pipeline auto-skips reranking without
  * needing --no-rerank on every invocation and without pulling a GGUF.
  */
@@ -38,44 +38,44 @@ describe("isRerankDisabled", () => {
 });
 
 describe("resolveRerankModel disabled sentinel", () => {
-  const previous = { QMD_RERANK_MODEL: process.env.QMD_RERANK_MODEL };
-  beforeEach(() => { delete process.env.QMD_RERANK_MODEL; });
+  const previous = { QMDX_RERANK_MODEL: process.env.QMDX_RERANK_MODEL };
+  beforeEach(() => { delete process.env.QMDX_RERANK_MODEL; });
   afterEach(() => {
-    if (previous.QMD_RERANK_MODEL === undefined) delete process.env.QMD_RERANK_MODEL;
-    else process.env.QMD_RERANK_MODEL = previous.QMD_RERANK_MODEL;
+    if (previous.QMDX_RERANK_MODEL === undefined) delete process.env.QMDX_RERANK_MODEL;
+    else process.env.QMDX_RERANK_MODEL = previous.QMDX_RERANK_MODEL;
   });
 
-  test("returns empty string for QMD_RERANK_MODEL=none", () => {
-    process.env.QMD_RERANK_MODEL = "none";
+  test("returns empty string for QMDX_RERANK_MODEL=none", () => {
+    process.env.QMDX_RERANK_MODEL = "none";
     expect(resolveRerankModel()).toBe("");
   });
 
   test("returns empty string for disabled/off/false/no", () => {
     for (const v of ["disabled", "off", "false", "no"]) {
-      process.env.QMD_RERANK_MODEL = v;
+      process.env.QMDX_RERANK_MODEL = v;
       expect(resolveRerankModel()).toBe("");
     }
   });
 
   test("falls back to default GGUF when unset", () => {
-    delete process.env.QMD_RERANK_MODEL;
+    delete process.env.QMDX_RERANK_MODEL;
     const resolved = resolveRerankModel();
     expect(resolved).toMatch(/Qwen3-Reranker/);
     expect(resolved.startsWith("hf:")).toBe(true);
   });
 
   test("keeps real model URIs as-is", () => {
-    process.env.QMD_RERANK_MODEL = "openai:bge-reranker";
+    process.env.QMDX_RERANK_MODEL = "openai:bge-reranker";
     expect(resolveRerankModel()).toBe("openai:bge-reranker");
   });
 
   test("config.rerank takes precedence over env", () => {
-    process.env.QMD_RERANK_MODEL = "none";
+    process.env.QMDX_RERANK_MODEL = "none";
     expect(resolveRerankModel({ rerank: "hf:some/reranker.gguf" })).toBe("hf:some/reranker.gguf");
   });
 
   test("config.rerank=none disables even if env points elsewhere", () => {
-    process.env.QMD_RERANK_MODEL = "hf:foo/r.gguf";
+    process.env.QMDX_RERANK_MODEL = "hf:foo/r.gguf";
     expect(resolveRerankModel({ rerank: "none" })).toBe("");
   });
 });

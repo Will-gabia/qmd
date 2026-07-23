@@ -34,14 +34,14 @@ test("parseOpenAIEmbedModel strips the scheme", () => {
 
 describe("resolveOpenAIEmbedConfig", () => {
   beforeEach(() => {
-    process.env.QMD_OPENAI_BASE_URL = "https://example.test/v1";
-    process.env.QMD_OPENAI_API_KEY = "sk-test";
-    delete process.env.QMD_OPENAI_EMBED_BATCH_SIZE;
+    process.env.QMDX_OPENAI_BASE_URL = "https://example.test/v1";
+    process.env.QMDX_OPENAI_API_KEY = "sk-test";
+    delete process.env.QMDX_OPENAI_EMBED_BATCH_SIZE;
   });
   afterEach(() => {
-    delete process.env.QMD_OPENAI_BASE_URL;
-    delete process.env.QMD_OPENAI_API_KEY;
-    delete process.env.QMD_OPENAI_EMBED_BATCH_SIZE;
+    delete process.env.QMDX_OPENAI_BASE_URL;
+    delete process.env.QMDX_OPENAI_API_KEY;
+    delete process.env.QMDX_OPENAI_EMBED_BATCH_SIZE;
   });
 
   test("reads model, base url, key, and default batch size", () => {
@@ -53,23 +53,23 @@ describe("resolveOpenAIEmbedConfig", () => {
   });
 
   test("trims trailing slashes from baseUrl", () => {
-    process.env.QMD_OPENAI_BASE_URL = "https://example.test/v1///";
+    process.env.QMDX_OPENAI_BASE_URL = "https://example.test/v1///";
     expect(resolveOpenAIEmbedConfig("openai:bge-m3").baseUrl).toBe("https://example.test/v1");
   });
 
-  test("honors QMD_OPENAI_EMBED_BATCH_SIZE", () => {
-    process.env.QMD_OPENAI_EMBED_BATCH_SIZE = "8";
+  test("honors QMDX_OPENAI_EMBED_BATCH_SIZE", () => {
+    process.env.QMDX_OPENAI_EMBED_BATCH_SIZE = "8";
     expect(resolveOpenAIEmbedConfig("openai:bge-m3").batchSize).toBe(8);
   });
 
   test("throws when base url is missing", () => {
-    delete process.env.QMD_OPENAI_BASE_URL;
-    expect(() => resolveOpenAIEmbedConfig("openai:bge-m3")).toThrow(/QMD_OPENAI_BASE_URL/);
+    delete process.env.QMDX_OPENAI_BASE_URL;
+    expect(() => resolveOpenAIEmbedConfig("openai:bge-m3")).toThrow(/QMDX_OPENAI_BASE_URL/);
   });
 
   test("throws when api key is missing", () => {
-    delete process.env.QMD_OPENAI_API_KEY;
-    expect(() => resolveOpenAIEmbedConfig("openai:bge-m3")).toThrow(/QMD_OPENAI_API_KEY/);
+    delete process.env.QMDX_OPENAI_API_KEY;
+    expect(() => resolveOpenAIEmbedConfig("openai:bge-m3")).toThrow(/QMDX_OPENAI_API_KEY/);
   });
 });
 

@@ -32,12 +32,12 @@ test("parseOpenAIChatModel strips scheme", () => {
 
 describe("resolveOpenAIChatConfig", () => {
   beforeEach(() => {
-    process.env.QMD_OPENAI_BASE_URL = "https://example.test/v1";
-    process.env.QMD_OPENAI_API_KEY = "sk-test";
+    process.env.QMDX_OPENAI_BASE_URL = "https://example.test/v1";
+    process.env.QMDX_OPENAI_API_KEY = "sk-test";
   });
   afterEach(() => {
-    delete process.env.QMD_OPENAI_BASE_URL;
-    delete process.env.QMD_OPENAI_API_KEY;
+    delete process.env.QMDX_OPENAI_BASE_URL;
+    delete process.env.QMDX_OPENAI_API_KEY;
   });
 
   test("resolves model + shared base config", () => {
@@ -48,8 +48,8 @@ describe("resolveOpenAIChatConfig", () => {
   });
 
   test("throws when base url missing", () => {
-    delete process.env.QMD_OPENAI_BASE_URL;
-    expect(() => resolveOpenAIChatConfig("openai:minimax")).toThrow(/QMD_OPENAI_BASE_URL/);
+    delete process.env.QMDX_OPENAI_BASE_URL;
+    expect(() => resolveOpenAIChatConfig("openai:minimax")).toThrow(/QMDX_OPENAI_BASE_URL/);
   });
 });
 
@@ -125,7 +125,7 @@ describe("openaiChatComplete", () => {
     );
     await expect(
       openaiChatComplete(cfg, { messages: [{ role: "user", content: "hi" }], fetch: fetchMock as typeof fetch })
-    ).rejects.toThrow(/no content.*finish_reason=length.*QMD_OPENAI_CHAT_MAX_TOKENS/s);
+    ).rejects.toThrow(/no content.*finish_reason=length.*QMDX_OPENAI_CHAT_MAX_TOKENS/s);
   });
 
   test("throws on non-2xx with body snippet", async () => {

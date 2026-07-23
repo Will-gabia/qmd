@@ -1,8 +1,8 @@
 /**
  * CLI Integration Tests
  *
- * Tests all qmd CLI commands using a temporary test database via INDEX_PATH.
- * These tests spawn actual qmd processes to verify end-to-end functionality.
+ * Tests all qmdx CLI commands using a temporary test database via INDEX_PATH.
+ * These tests spawn actual qmdx processes to verify end-to-end functionality.
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "vitest";
@@ -13,7 +13,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
 import { setTimeout as sleep } from "timers/promises";
-import { buildEditorUri, termLink, resolveEmbedModelForCli } from "../src/cli/qmd.ts";
+import { buildEditorUri, termLink, resolveEmbedModelForCli } from "../src/cli/qmdx.ts";
 import { openDatabase } from "../src/db.ts";
 import { DEFAULT_EMBED_MODEL_URI, DEFAULT_GENERATE_MODEL_URI, DEFAULT_RERANK_MODEL_URI } from "../src/llm.ts";
 import { setConfigSource } from "../src/collections.ts";
@@ -28,7 +28,7 @@ let testCounter = 0; // Unique counter for each test run
 // Get the directory where this test file lives
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(thisDir, "..");
-const qmdScript = join(projectRoot, "src", "cli", "qmd.ts");
+const qmdScript = join(projectRoot, "src", "cli", "qmdx.ts");
 const isBunRuntime = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 const tsxCli = join(projectRoot, "node_modules", "tsx", "dist", "cli.mjs");
 const qmdCommand = isBunRuntime
@@ -39,7 +39,7 @@ function qmdRunnerArgs(args: string[]): { command: string; args: string[] } {
   return { command: qmdCommand.command, args: [...qmdCommand.args, ...args] };
 }
 
-// Helper to run qmd command with test database
+// Helper to run qmdx command with test database
 async function runQmd(
   args: string[],
   options: { cwd?: string; env?: Record<string, string>; dbPath?: string; configDir?: string } = {}
@@ -53,9 +53,9 @@ async function runQmd(
     env: {
       ...process.env,
       INDEX_PATH: dbPath,
-      QMD_CONFIG_DIR: configDir, // Use test config directory
+      QMDX_CONFIG_DIR: configDir, // Use test config directory
       PWD: workingDir, // Must explicitly set PWD since getPwd() checks this
-      QMD_DOCTOR_DEVICE_PROBE: "0", // Keep integration tests deterministic on CI hosts without usable GPU backends.
+      QMDX_DOCTOR_DEVICE_PROBE: "0", // Keep integration tests deterministic on CI hosts without usable GPU backends.
       ...options.env,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -123,7 +123,7 @@ beforeAll(async () => {
     join(fixturesDir, "README.md"),
     `# Test Project
 
-This is a test project for QMD CLI testing.
+This is a test project for QMDx CLI testing.
 
 ## Features
 
@@ -236,10 +236,10 @@ describe("CLI Help", () => {
     const { stdout, exitCode } = await runQmd(["--help"]);
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Usage:");
-    expect(stdout).toContain("qmd collection add");
-    expect(stdout).toContain("qmd search");
+    expect(stdout).toContain("qmdx collection add");
+    expect(stdout).toContain("qmdx search");
     expect(stdout).toContain("--no-gpu");
-    expect(stdout).toContain("qmd skill show/install");
+    expect(stdout).toContain("qmdx skill show/install");
   });
 
   test("shows help with no arguments", async () => {
@@ -256,89 +256,89 @@ describe("CLI Skills", () => {
     const { stdout, stderr, exitCode } = await runQmd(["skills", "list"]);
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("qmd");
+    expect(stdout).toContain("qmdx");
     expect(stdout).toContain("Search local markdown knowledge bases");
   });
 
   test("gets version-matched runtime skill content", async () => {
-    const { stdout, stderr, exitCode } = await runQmd(["skills", "get", "qmd"]);
+    const { stdout, stderr, exitCode } = await runQmd(["skills", "get", "qmdx"]);
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("# QMD - Query Markdown Documents");
+    expect(stdout).toContain("# QMDx - Query Markdown Documents");
     expect(stdout).toContain("## MCP Tool: `query`");
     expect(stdout).not.toContain("This file is a discovery stub");
   });
 
   test("gets runtime skill with supplementary references", async () => {
-    const { stdout, stderr, exitCode } = await runQmd(["skills", "get", "qmd", "--full"]);
+    const { stdout, stderr, exitCode } = await runQmd(["skills", "get", "qmdx", "--full"]);
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("# QMD - Query Markdown Documents");
+    expect(stdout).toContain("# QMDx - Query Markdown Documents");
     expect(stdout).toContain("--- references/mcp-setup.md ---");
-    expect(stdout).toContain("# QMD MCP Server Setup");
+    expect(stdout).toContain("# QMDx MCP Server Setup");
   });
 
   test("prints canonical repository skill path", async () => {
-    const { stdout, stderr, exitCode } = await runQmd(["skills", "path", "qmd"]);
+    const { stdout, stderr, exitCode } = await runQmd(["skills", "path", "qmdx"]);
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
-    expect(stdout.trim()).toMatch(/skills\/qmd$/);
+    expect(stdout.trim()).toMatch(/skills\/qmdx$/);
   });
 
   test("legacy skill show prints the canonical skill", async () => {
     const { stdout, stderr, exitCode } = await runQmd(["skill", "show"]);
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("# QMD - Query Markdown Documents");
+    expect(stdout).toContain("# QMDx - Query Markdown Documents");
     expect(stdout).toContain("## MCP Tool: `query`");
     expect(stdout).not.toContain("This file is a discovery stub");
   });
 
-  test("legacy skill install writes a qmd skill show bootstrap", async () => {
+  test("legacy skill install writes a qmdx skill show bootstrap", async () => {
     const installDir = join(testDir, "skill-install-target");
     await mkdir(installDir, { recursive: true });
 
     const { stdout, stderr, exitCode } = await runQmd(["skill", "install", "--yes"], { cwd: installDir });
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("Installed QMD skill");
+    expect(stdout).toContain("Installed QMDx skill");
 
-    const installedSkillDir = join(installDir, ".agents", "skills", "qmd");
+    const installedSkillDir = join(installDir, ".agents", "skills", "qmdx");
     const installed = readFileSync(join(installedSkillDir, "SKILL.md"), "utf8");
-    expect(installed).toContain("# QMD - Query Markdown Documents");
-    expect(installed).toContain("!`qmd skill show`");
-    expect(installed).toContain("qmd get");
+    expect(installed).toContain("# QMDx - Query Markdown Documents");
+    expect(installed).toContain("!`qmdx skill show`");
+    expect(installed).toContain("qmdx get");
     expect(installed).not.toContain("## MCP Tool: `query`");
-    expect(readFileSync(join(installedSkillDir, "references", "mcp-setup.md"), "utf8")).toContain("# QMD MCP Server Setup");
+    expect(readFileSync(join(installedSkillDir, "references", "mcp-setup.md"), "utf8")).toContain("# QMDx MCP Server Setup");
   });
 });
 
 describe("CLI Embed", () => {
-  test("prefers QMD_EMBED_MODEL for qmd embed when the index has no model pin", () => {
-    const prev = process.env.QMD_EMBED_MODEL;
-    process.env.QMD_EMBED_MODEL = "hf:env/embed-model.gguf";
+  test("prefers QMDX_EMBED_MODEL for qmdx embed when the index has no model pin", () => {
+    const prev = process.env.QMDX_EMBED_MODEL;
+    process.env.QMDX_EMBED_MODEL = "hf:env/embed-model.gguf";
     setConfigSource({ config: { collections: {} } });
 
     try {
       expect(resolveEmbedModelForCli()).toBe("hf:env/embed-model.gguf");
     } finally {
       setConfigSource();
-      if (prev === undefined) delete process.env.QMD_EMBED_MODEL;
-      else process.env.QMD_EMBED_MODEL = prev;
+      if (prev === undefined) delete process.env.QMDX_EMBED_MODEL;
+      else process.env.QMDX_EMBED_MODEL = prev;
     }
   });
 
-  test("falls back to the default embed model when QMD_EMBED_MODEL is unset", () => {
-    const prev = process.env.QMD_EMBED_MODEL;
-    delete process.env.QMD_EMBED_MODEL;
+  test("falls back to the default embed model when QMDX_EMBED_MODEL is unset", () => {
+    const prev = process.env.QMDX_EMBED_MODEL;
+    delete process.env.QMDX_EMBED_MODEL;
     setConfigSource({ config: { collections: {} } });
 
     try {
       expect(resolveEmbedModelForCli()).toBe(DEFAULT_EMBED_MODEL_URI);
     } finally {
       setConfigSource();
-      if (prev === undefined) delete process.env.QMD_EMBED_MODEL;
-      else process.env.QMD_EMBED_MODEL = prev;
+      if (prev === undefined) delete process.env.QMDX_EMBED_MODEL;
+      else process.env.QMDX_EMBED_MODEL = prev;
     }
   });
 
@@ -359,15 +359,15 @@ describe("CLI Skill Commands", () => {
   test("shows embedded skill with --skill alias", async () => {
     const { stdout, exitCode } = await runQmd(["--skill"]);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("QMD Skill");
-    expect(stdout).toContain("name: qmd");
-    expect(stdout).toContain("allowed-tools: Bash(qmd:*), mcp__qmd__*");
+    expect(stdout).toContain("QMDx Skill");
+    expect(stdout).toContain("name: qmdx");
+    expect(stdout).toContain("allowed-tools: Bash(qmdx:*), mcp__qmd__*");
   });
 
   test("shows skill help with -h", async () => {
     const { stdout, exitCode } = await runQmd(["skill", "-h"]);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("Usage: qmd skill <show|install> [options]");
+    expect(stdout).toContain("Usage: qmdx skill <show|install> [options]");
     expect(stdout).toContain("install");
     expect(stdout).toContain("--global");
   });
@@ -379,12 +379,12 @@ describe("CLI Skill Commands", () => {
     const { stdout, exitCode } = await runQmd(["skill", "install"], { cwd: projectDir });
     expect(exitCode).toBe(0);
 
-    const skillDir = join(projectDir, ".agents", "skills", "qmd");
+    const skillDir = join(projectDir, ".agents", "skills", "qmdx");
     const installed = readFileSync(join(skillDir, "SKILL.md"), "utf-8");
-    expect(installed).toContain("# QMD - Query Markdown Documents");
-    expect(installed).toContain("!`qmd skill show`");
-    expect(existsSync(join(projectDir, ".claude", "skills", "qmd"))).toBe(false);
-    expect(stdout).toContain(`✓ Installed QMD skill to ${skillDir}`);
+    expect(installed).toContain("# QMDx - Query Markdown Documents");
+    expect(installed).toContain("!`qmdx skill show`");
+    expect(existsSync(join(projectDir, ".claude", "skills", "qmdx"))).toBe(false);
+    expect(stdout).toContain(`✓ Installed QMDx skill to ${skillDir}`);
     expect(stdout).toContain("Tip: create a Claude symlink manually");
   });
 
@@ -397,17 +397,17 @@ describe("CLI Skill Commands", () => {
     });
     expect(exitCode).toBe(0);
 
-    const skillDir = join(fakeHome, ".agents", "skills", "qmd");
-    const claudeLink = join(fakeHome, ".claude", "skills", "qmd");
+    const skillDir = join(fakeHome, ".agents", "skills", "qmdx");
+    const claudeLink = join(fakeHome, ".claude", "skills", "qmdx");
 
-    expect(readFileSync(join(skillDir, "SKILL.md"), "utf-8")).toContain("!`qmd skill show`");
+    expect(readFileSync(join(skillDir, "SKILL.md"), "utf-8")).toContain("!`qmdx skill show`");
     expect(lstatSync(claudeLink).isSymbolicLink()).toBe(true);
-    expect(readFileSync(join(claudeLink, "SKILL.md"), "utf-8")).toContain("!`qmd skill show`");
-    expect(stdout).toContain(`✓ Installed QMD skill to ${skillDir}`);
+    expect(readFileSync(join(claudeLink, "SKILL.md"), "utf-8")).toContain("!`qmdx skill show`");
+    expect(stdout).toContain(`✓ Installed QMDx skill to ${skillDir}`);
     expect(stdout).toContain(`✓ Linked Claude skill at ${claudeLink}`);
   });
 
-  test("skips Claude qmd symlink when .claude/skills already points to .agents/skills", async () => {
+  test("skips Claude qmdx symlink when .claude/skills already points to .agents/skills", async () => {
     const fakeHome = join(testDir, "skill-home-shared");
     await mkdir(join(fakeHome, ".agents"), { recursive: true });
     await mkdir(join(fakeHome, ".claude"), { recursive: true });
@@ -418,9 +418,9 @@ describe("CLI Skill Commands", () => {
     });
     expect(exitCode).toBe(0);
 
-    const skillDir = join(fakeHome, ".agents", "skills", "qmd");
+    const skillDir = join(fakeHome, ".agents", "skills", "qmdx");
     expect(lstatSync(skillDir).isSymbolicLink()).toBe(false);
-    expect(readFileSync(join(skillDir, "SKILL.md"), "utf-8")).toContain("!`qmd skill show`");
+    expect(readFileSync(join(skillDir, "SKILL.md"), "utf-8")).toContain("!`qmdx skill show`");
     expect(stdout).toContain(`✓ Claude already sees the skill via ${join(fakeHome, ".claude", "skills")}`);
   });
 
@@ -439,16 +439,16 @@ describe("CLI Skill Commands", () => {
 });
 
 describe("CLI Init Command", () => {
-  test("creates a project-local .qmd index", async () => {
+  test("creates a project-local .qmdx index", async () => {
     const projectDir = join(testDir, "init-project");
     await mkdir(projectDir, { recursive: true });
 
     const { stdout, exitCode } = await runQmd(["init"], { cwd: projectDir });
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe("ready to go with new local index");
-    expect(existsSync(join(projectDir, ".qmd", "index.yml"))).toBe(true);
-    expect(existsSync(join(projectDir, ".qmd", "index.sqlite"))).toBe(true);
-    const configText = readFileSync(join(projectDir, ".qmd", "index.yml"), "utf-8");
+    expect(existsSync(join(projectDir, ".qmdx", "index.yml"))).toBe(true);
+    expect(existsSync(join(projectDir, ".qmdx", "index.sqlite"))).toBe(true);
+    const configText = readFileSync(join(projectDir, ".qmdx", "index.yml"), "utf-8");
     expect(configText).toContain("collections: {}");
     expect(configText).toContain("models:");
   });
@@ -464,7 +464,7 @@ describe("CLI Init Command", () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain("Refusing to initialize a local index in $HOME");
     expect(stderr).toContain("global index is automatically created");
-    expect(existsSync(join(fakeHome, ".qmd", "index.yml"))).toBe(false);
+    expect(existsSync(join(fakeHome, ".qmdx", "index.yml"))).toBe(false);
   });
 });
 
@@ -505,17 +505,17 @@ describe("CLI Status Command", () => {
     await runQmd(["collection", "add", "."]);
   });
 
-  test("qmd doctor reports core index health checks", async () => {
+  test("qmdx doctor reports core index health checks", async () => {
     const { stdout, exitCode } = await runQmd(["doctor"]);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("QMD Doctor");
+    expect(stdout).toContain("QMDx Doctor");
     expect(stdout).toContain("SQLite runtime");
     expect(stdout).toContain("sqlite-vec");
     expect(stdout).toContain("environment overrides");
     expect(stdout).toContain("INDEX_PATH");
     expect(stdout).toContain("overrides the SQLite index path");
-    expect(stdout).toContain("QMD_CONFIG_DIR");
-    expect(stdout).toContain("overrides the QMD config directory");
+    expect(stdout).toContain("QMDX_CONFIG_DIR");
+    expect(stdout).toContain("overrides the QMDx config directory");
     expect(stdout).toContain("model defaults");
     expect(stdout).toContain("model cache");
     expect(stdout).toContain("device mode");
@@ -523,7 +523,7 @@ describe("CLI Status Command", () => {
     expect(stdout).toContain("embedding freshness");
     expect(stdout).toContain("embedding fingerprints");
     expect(stdout).toContain("embedding vector sample");
-    expect(stdout).toContain("please run qmd embed again");
+    expect(stdout).toContain("please run qmdx embed again");
 
     const configText = readFileSync(join(testConfigDir, "index.yml"), "utf-8");
     expect(configText).toContain("models:");
@@ -532,16 +532,16 @@ describe("CLI Status Command", () => {
     expect(configText).toContain(DEFAULT_RERANK_MODEL_URI);
   }, 20000);
 
-  test("qmd doctor warns when no collections are configured", async () => {
+  test("qmdx doctor warns when no collections are configured", async () => {
     const env = await createIsolatedTestEnv("doctor-no-collections");
     const { stdout, exitCode } = await runQmd(["doctor"], { dbPath: env.dbPath, configDir: env.configDir });
     expect(exitCode).toBe(0);
     expect(stdout).toContain("index config");
     expect(stdout).toContain("no collections configured");
-    expect(stdout).toContain("qmd collection add .");
+    expect(stdout).toContain("qmdx collection add .");
   }, 20000);
 
-  test("qmd doctor reports invalid index.yml without crashing", async () => {
+  test("qmdx doctor reports invalid index.yml without crashing", async () => {
     const env = await createIsolatedTestEnv("doctor-invalid-config");
     await writeFile(join(env.configDir, "index.yml"), "collections:\n  bad: [unterminated\n");
 
@@ -553,7 +553,7 @@ describe("CLI Status Command", () => {
     expect(stdout).toContain("fix the YAML");
   }, 20000);
 
-  test("qmd doctor warns when configured models differ from code defaults", async () => {
+  test("qmdx doctor warns when configured models differ from code defaults", async () => {
     const env = await createIsolatedTestEnv("doctor-custom-models");
     await writeFile(join(env.configDir, "index.yml"), `collections: {}\nmodels:\n  embed: hf:example/custom-embed/custom.gguf\n  generate: ${DEFAULT_GENERATE_MODEL_URI}\n  rerank: ${DEFAULT_RERANK_MODEL_URI}\n`);
 
@@ -563,15 +563,15 @@ describe("CLI Status Command", () => {
     expect(stdout).toContain("non-default model configuration");
     expect(stdout).toContain("index hf:example/custom-embed/custom.gguf");
     expect(stdout).toContain("might be ok");
-    expect(stdout).toContain("qmd pull");
+    expect(stdout).toContain("qmdx pull");
   }, 20000);
 
-  test("qmd doctor identifies cached non-GGUF model files", async () => {
+  test("qmdx doctor identifies cached non-GGUF model files", async () => {
     const env = await createIsolatedTestEnv("doctor-invalid-model-cache");
     const model = "hf:example/custom-model/custom.gguf";
     await writeFile(join(env.configDir, "index.yml"), `collections: {}\nmodels:\n  embed: ${model}\n  generate: ${model}\n  rerank: ${model}\n`);
     const cacheRoot = join(env.configDir, "cache");
-    const modelCacheDir = join(cacheRoot, "qmd", "models");
+    const modelCacheDir = join(cacheRoot, "qmdx", "models");
     await mkdir(modelCacheDir, { recursive: true });
     const badModelPath = join(modelCacheDir, "custom.gguf");
     await writeFile(badModelPath, "<!doctype html><html>blocked</html>");
@@ -581,18 +581,18 @@ describe("CLI Status Command", () => {
       configDir: env.configDir,
       env: {
         XDG_CACHE_HOME: cacheRoot,
-        QMD_DOCTOR_DEVICE_PROBE: "0",
+        QMDX_DOCTOR_DEVICE_PROBE: "0",
       },
     });
     expect(exitCode).toBe(0);
     expect(stdout).toContain("model cache");
     expect(stdout).toContain("invalid 1");
     expect(stdout).toContain("HTML page, not a GGUF model");
-    expect(stdout).toContain("qmd pull --refresh");
+    expect(stdout).toContain("qmdx pull --refresh");
   }, 20000);
 
-  test("qmd doctor ignores .etag sidecars beside a valid cached model", async () => {
-    // `qmd pull` writes a `<filename>.etag` HTTP sidecar next to each model
+  test("qmdx doctor ignores .etag sidecars beside a valid cached model", async () => {
+    // `qmdx pull` writes a `<filename>.etag` HTTP sidecar next to each model
     // blob. That sidecar matches the model-cache lookup's `includes(filename)`
     // test, so a naive scan inspects it as a GGUF and reports the model
     // "invalid" — order-dependently, whenever readdir yields the sidecar
@@ -601,7 +601,7 @@ describe("CLI Status Command", () => {
     const model = "hf:example/custom-model/custom.gguf";
     await writeFile(join(env.configDir, "index.yml"), `collections: {}\nmodels:\n  embed: ${model}\n  generate: ${model}\n  rerank: ${model}\n`);
     const cacheRoot = join(env.configDir, "cache");
-    const modelCacheDir = join(cacheRoot, "qmd", "models");
+    const modelCacheDir = join(cacheRoot, "qmdx", "models");
     await mkdir(modelCacheDir, { recursive: true });
     // Create the sidecar first so readdir is more likely to surface it before
     // the blob on order-preserving filesystems (the bug's trigger condition).
@@ -615,7 +615,7 @@ describe("CLI Status Command", () => {
       configDir: env.configDir,
       env: {
         XDG_CACHE_HOME: cacheRoot,
-        QMD_DOCTOR_DEVICE_PROBE: "0",
+        QMDX_DOCTOR_DEVICE_PROBE: "0",
       },
     });
     expect(exitCode).toBe(0);
@@ -626,7 +626,7 @@ describe("CLI Status Command", () => {
     expect(stdout).not.toContain(".etag");
   }, 20000);
 
-  test("qmd doctor says when models are overridden by env", async () => {
+  test("qmdx doctor says when models are overridden by env", async () => {
     const env = await createIsolatedTestEnv("doctor-env-models");
     await writeFile(join(env.configDir, "index.yml"), "collections: {}\n");
 
@@ -634,47 +634,47 @@ describe("CLI Status Command", () => {
     const { stdout, exitCode } = await runQmd(["doctor"], {
       dbPath: env.dbPath,
       configDir: env.configDir,
-      env: { QMD_EMBED_MODEL: customEmbed },
+      env: { QMDX_EMBED_MODEL: customEmbed },
     });
     expect(exitCode).toBe(0);
     expect(stdout).toContain("model defaults");
-    expect(stdout).toContain(`env QMD_EMBED_MODEL=${customEmbed}`);
+    expect(stdout).toContain(`env QMDX_EMBED_MODEL=${customEmbed}`);
     expect(stdout).toContain("might be ok");
     expect(stdout).toContain("environment overrides");
-    expect(stdout).toContain(`QMD_EMBED_MODEL=${customEmbed}`);
+    expect(stdout).toContain(`QMDX_EMBED_MODEL=${customEmbed}`);
     expect(stdout).toContain("sets the active embed model");
   }, 20000);
 
-  test("qmd doctor shows CPU-forced device mode with QMD_FORCE_CPU=1", async () => {
+  test("qmdx doctor shows CPU-forced device mode with QMDX_FORCE_CPU=1", async () => {
     const env = await createIsolatedTestEnv("doctor-force-cpu");
     const { stdout, exitCode } = await runQmd(["doctor"], {
       dbPath: env.dbPath,
       configDir: env.configDir,
       env: {
-        QMD_FORCE_CPU: "1",
-        QMD_DOCTOR_DEVICE_PROBE: "0",
+        QMDX_FORCE_CPU: "1",
+        QMDX_DOCTOR_DEVICE_PROBE: "0",
       },
     });
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("QMD_FORCE_CPU=1");
+    expect(stdout).toContain("QMDX_FORCE_CPU=1");
     expect(stdout).toContain("forces llama.cpp to bypass GPU backends");
-    expect(stdout).toContain("device mode: CPU forced (QMD_FORCE_CPU)");
+    expect(stdout).toContain("device mode: CPU forced (QMDX_FORCE_CPU)");
   }, 20000);
 
-  test("qmd doctor lists known environment overrides and consequences", async () => {
+  test("qmdx doctor lists known environment overrides and consequences", async () => {
     const env = await createIsolatedTestEnv("doctor-env-overrides");
     const overrides = {
       XDG_CACHE_HOME: join(env.configDir, "cache"),
-      QMD_DOCTOR_DEVICE_PROBE: "0",
-      QMD_FORCE_CPU: "1",
-      QMD_LLAMA_GPU: "metal",
-      QMD_EMBED_PARALLELISM: "2",
-      QMD_EXPAND_CONTEXT_SIZE: "4096",
-      QMD_RERANK_CONTEXT_SIZE: "8192",
-      QMD_EMBED_CONTEXT_SIZE: "1024",
-      QMD_EDITOR_URI: "vscode://file/{file}:{line}:{col}",
-      QMD_SKILLS_DIR: "/tmp/qmd-skills",
-      QMD_METAL_KEEP_RESIDENCY: "1",
+      QMDX_DOCTOR_DEVICE_PROBE: "0",
+      QMDX_FORCE_CPU: "1",
+      QMDX_LLAMA_GPU: "metal",
+      QMDX_EMBED_PARALLELISM: "2",
+      QMDX_EXPAND_CONTEXT_SIZE: "4096",
+      QMDX_RERANK_CONTEXT_SIZE: "8192",
+      QMDX_EMBED_CONTEXT_SIZE: "1024",
+      QMDX_EDITOR_URI: "vscode://file/{file}:{line}:{col}",
+      QMDX_SKILLS_DIR: "/tmp/qmd-skills",
+      QMDX_METAL_KEEP_RESIDENCY: "1",
       NO_COLOR: "1",
       CI: "1",
       HF_ENDPOINT: "https://hf-mirror.com",
@@ -697,7 +697,7 @@ describe("CLI Status Command", () => {
     expect(stdout).toContain("changes Hugging Face download endpoint");
   }, 20000);
 
-  test("qmd doctor flags mixed embedding fingerprints", async () => {
+  test("qmdx doctor flags mixed embedding fingerprints", async () => {
     const db = openDatabase(testDbPath);
     const doc = db.prepare(`SELECT hash FROM documents WHERE active = 1 LIMIT 1`).get() as { hash: string };
     const now = new Date().toISOString();
@@ -729,7 +729,7 @@ describe("CLI Status Command", () => {
     const { stdout, exitCode } = await runQmd(["status"]);
     expect(exitCode).toBe(0);
     expect(stdout).not.toContain("Device");
-    expect(stdout).not.toContain("QMD_STATUS_DEVICE_PROBE");
+    expect(stdout).not.toContain("QMDX_STATUS_DEVICE_PROBE");
     expect(stdout).not.toContain("not probed");
   });
 });
@@ -828,7 +828,7 @@ describe("CLI Search Command", () => {
     expect(stderr).toContain("Usage:");
   });
 
-  test("--json --full includes line field for round-tripping to qmd get", async () => {
+  test("--json --full includes line field for round-tripping to qmdx get", async () => {
     const { stdout, exitCode } = await runQmd(["search", "meeting", "--json", "--full", "-n", "1"]);
     expect(exitCode).toBe(0);
     const results = JSON.parse(stdout);
@@ -1078,7 +1078,7 @@ describe("CLI Error Handling", () => {
     expect(exitCode).toBe(1);
     // Should indicate unknown command and point users to diagnostics
     expect(stderr).toContain("Unknown command");
-    expect(stderr).toContain("qmd doctor");
+    expect(stderr).toContain("qmdx doctor");
   });
 
   test("uses INDEX_PATH environment variable", async () => {
@@ -1608,7 +1608,7 @@ describe("search output formats", () => {
     expect(exitCode).toBe(0);
 
     // Add context
-    await runQmd(["context", "add", `qmd://${collName}/`, "Test fixtures for QMD"], { dbPath: localDbPath, configDir: localConfigDir });
+    await runQmd(["context", "add", `qmd://${collName}/`, "Test fixtures for QMDx"], { dbPath: localDbPath, configDir: localConfigDir });
   });
 
   test("search --json includes qmd:// path, docid, and context", async () => {
@@ -1621,13 +1621,13 @@ describe("search output formats", () => {
     const result = results[0];
     expect(result.file).toMatch(new RegExp(`^qmd://${collName}/`));
     expect(result.docid).toMatch(/^#[a-f0-9]{6}$/);
-    expect(result.context).toBe("Test fixtures for QMD");
+    expect(result.context).toBe("Test fixtures for QMDx");
     // Ensure no full filesystem paths
     expect(result.file).not.toMatch(/^\/Users\//);
     expect(result.file).not.toMatch(/^\/home\//);
   });
 
-  test("custom-index search links include ?index= and can be passed back to qmd get", async () => {
+  test("custom-index search links include ?index= and can be passed back to qmdx get", async () => {
     const env = await createIsolatedTestEnv("custom-index-links");
     const customColl = "fixtures-alt";
     const customIndex = "release-notes";
@@ -1669,7 +1669,7 @@ describe("search output formats", () => {
 
     // Format: #docid,score,qmd://collection/path,"context"
     expect(stdout).toMatch(new RegExp(`^#[a-f0-9]{6},[\\d.]+,qmd://${collName}/`, "m"));
-    expect(stdout).toContain("Test fixtures for QMD");
+    expect(stdout).toContain("Test fixtures for QMDx");
     // Ensure no full filesystem paths
     expect(stdout).not.toMatch(/\/Users\//);
     expect(stdout).not.toMatch(/\/home\//);
@@ -1683,7 +1683,7 @@ describe("search output formats", () => {
     expect(stdout).toMatch(/^docid,score,file,title,context,line,snippet$/m);
     // Data rows should have qmd:// paths and context
     expect(stdout).toMatch(new RegExp(`#[a-f0-9]{6},[\\d.]+,qmd://${collName}/`));
-    expect(stdout).toContain("Test fixtures for QMD");
+    expect(stdout).toContain("Test fixtures for QMDx");
     // Ensure no full filesystem paths
     expect(stdout).not.toMatch(/\/Users\//);
     expect(stdout).not.toMatch(/\/home\//);
@@ -1694,9 +1694,9 @@ describe("search output formats", () => {
     expect(exitCode).toBe(0);
 
     expect(stdout).toMatch(/\*\*docid:\*\* `#[a-f0-9]{6}`/);
-    expect(stdout).toContain("**context:** Test fixtures for QMD");
+    expect(stdout).toContain("**context:** Test fixtures for QMDx");
     // The file path must be a qmd:// URI so the model can pipe it back into
-    // `qmd get` without having to reassemble a collection-relative string.
+    // `qmdx get` without having to reassemble a collection-relative string.
     expect(stdout).toMatch(new RegExp(`\\*\\*file:\\*\\* \`qmd://${collName}/`));
   });
 
@@ -1705,7 +1705,7 @@ describe("search output formats", () => {
     expect(exitCode).toBe(0);
 
     expect(stdout).toMatch(new RegExp(`<file docid="#[a-f0-9]{6}" name="qmd://${collName}/`));
-    expect(stdout).toContain('context="Test fixtures for QMD"');
+    expect(stdout).toContain('context="Test fixtures for QMDx"');
     // Ensure no full filesystem paths
     expect(stdout).not.toMatch(/\/Users\//);
     expect(stdout).not.toMatch(/\/home\//);
@@ -1804,7 +1804,7 @@ describe("search output formats", () => {
 
     // runQmd uses piped stdio, so stdout is non-TTY and should not contain OSC 8 links.
     expect(stdout).toMatch(new RegExp(`^qmd://${collName}/.*#[a-f0-9]{6}`, "m"));
-    expect(stdout).toContain("Context: Test fixtures for QMD");
+    expect(stdout).toContain("Context: Test fixtures for QMDx");
     expect(stdout).not.toContain("\x1b]8;;");
     // Ensure no full filesystem paths
     expect(stdout).not.toMatch(/\/Users\//);
@@ -2116,12 +2116,12 @@ describe("status and collection list hide filesystem paths", () => {
     const { stdout, exitCode } = await runQmd(["doctor"], {
       dbPath: localDbPath,
       configDir: localConfigDir,
-      env: { QMD_DOCTOR_DEVICE_PROBE: "0" },
+      env: { QMDX_DOCTOR_DEVICE_PROBE: "0" },
     });
     expect(exitCode).toBe(0);
 
-    expect(stdout).toContain("QMD Doctor");
-    const lines = stdout.split('\n').filter(l => !l.includes('Index:') && !l.includes('INDEX_PATH=') && !l.includes('QMD_CONFIG_DIR='));
+    expect(stdout).toContain("QMDx Doctor");
+    const lines = stdout.split('\n').filter(l => !l.includes('Index:') && !l.includes('INDEX_PATH=') && !l.includes('QMDX_CONFIG_DIR='));
     const pathLines = lines.filter(l => l.includes('/Users/') || l.includes('/home/') || l.includes('/tmp/'));
     expect(pathLines.length).toBe(0);
   }, 20000);
@@ -2143,7 +2143,7 @@ describe("status and collection list hide filesystem paths", () => {
 
 describe("mcp http daemon", () => {
   let daemonTestDir: string;
-  let daemonCacheDir: string; // XDG_CACHE_HOME value (the qmd/ subdir is created automatically)
+  let daemonCacheDir: string; // XDG_CACHE_HOME value (the qmdx/ subdir is created automatically)
   let daemonDbPath: string;
   let daemonConfigDir: string;
 
@@ -2152,10 +2152,10 @@ describe("mcp http daemon", () => {
 
   /** Get path to PID file inside the test cache dir */
   function pidPath(): string {
-    return join(daemonCacheDir, "qmd", "mcp.pid");
+    return join(daemonCacheDir, "qmdx", "mcp.pid");
   }
 
-  /** Run qmd with test-isolated env (cache, db, config) */
+  /** Run qmdx with test-isolated env (cache, db, config) */
   async function runDaemonQmd(
     args: string[],
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
@@ -2177,7 +2177,7 @@ describe("mcp http daemon", () => {
       env: {
         ...process.env,
         INDEX_PATH: daemonDbPath,
-        QMD_CONFIG_DIR: daemonConfigDir,
+        QMDX_CONFIG_DIR: daemonConfigDir,
         PWD: fixturesDir,
         ...options.env,
       },
@@ -2211,7 +2211,7 @@ describe("mcp http daemon", () => {
     daemonDbPath = join(daemonTestDir, "test.sqlite");
     daemonConfigDir = join(daemonTestDir, "config");
 
-    await mkdir(join(daemonCacheDir, "qmd"), { recursive: true });
+    await mkdir(join(daemonCacheDir, "qmdx"), { recursive: true });
     await mkdir(daemonConfigDir, { recursive: true });
     await writeFile(join(daemonConfigDir, "index.yml"), "collections: {}\n");
   });
@@ -2296,7 +2296,7 @@ describe("mcp http daemon", () => {
       env: {
         INDEX_PATH: "",
         XDG_CACHE_HOME: customCacheDir,
-        QMD_CONFIG_DIR: customConfigDir,
+        QMDX_CONFIG_DIR: customConfigDir,
       },
     });
 
@@ -2446,21 +2446,21 @@ describe("mcp stdio launcher", () => {
     try {
       await mkdir(join(tempPackage, "bin"), { recursive: true });
       await mkdir(join(tempPackage, "dist", "cli"), { recursive: true });
-      await writeFile(join(tempPackage, "dist", "cli", "qmd.js"), "// fixture\n");
+      await writeFile(join(tempPackage, "dist", "cli", "qmdx.js"), "// fixture\n");
       await mkdir(join(tempPackage, "fake-bin"), { recursive: true });
 
-      const qmdBin = join(tempPackage, "bin", "qmd");
-      await copyFile(join(projectRoot, "bin", "qmd"), qmdBin);
+      const qmdBin = join(tempPackage, "bin", "qmdx");
+      await copyFile(join(projectRoot, "bin", "qmdx"), qmdBin);
       await chmod(qmdBin, 0o755);
 
       // Force the wrapper down the Node branch, then put our fake `node` first
       // in PATH. The fake node behaves like the native llama/ggml layer: it
-      // writes a non-JSON stdout line unless qmd pre-seeded the documented
+      // writes a non-JSON stdout line unless qmdx pre-seeded the documented
       // quiet env vars before launching JS.
       await writeFile(join(tempPackage, "package-lock.json"), "{}\n");
       const fakeNode = join(tempPackage, "fake-bin", "node");
       await writeFile(fakeNode, `#!/bin/sh
-if [ "$(basename "$1")" = "qmd" ]; then
+if [ "$(basename "$1")" = "qmdx" ]; then
   exec "${process.execPath}" "$@"
 else
   if [ "\${GGML_BACKEND_SILENT:-}" != "1" ]; then

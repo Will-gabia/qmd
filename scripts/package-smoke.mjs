@@ -53,13 +53,13 @@ for (const [name, binPath] of Object.entries(pkg.bin ?? {})) {
 
 assertPath("dist/index.js", "compiled main export");
 assertPath("dist/index.d.ts", "compiled type export");
-assertPath("dist/cli/qmd.js", "compiled CLI");
+assertPath("dist/cli/qmdx.js", "compiled CLI");
 
-run("compiled CLI under Node", process.execPath, ["dist/cli/qmd.js", "--help"], { quiet: true });
+run("compiled CLI under Node", process.execPath, ["dist/cli/qmdx.js", "--help"], { quiet: true });
 run("package wrapper", "sh", ["bin/qmd", "--help"], { quiet: true });
 
-if (process.env.QMD_SKIP_BUN_SMOKE === "1") {
-  console.log("==> compiled CLI under Bun (skipped by QMD_SKIP_BUN_SMOKE=1)");
+if (process.env.QMDX_SKIP_BUN_SMOKE === "1") {
+  console.log("==> compiled CLI under Bun (skipped by QMDX_SKIP_BUN_SMOKE=1)");
 } else {
-  run("compiled CLI under Bun", "bun", ["dist/cli/qmd.js", "--help"], { quiet: true });
+  run("compiled CLI under Bun", "bun", ["dist/cli/qmdx.js", "--help"], { quiet: true });
 }

@@ -13,11 +13,11 @@ export function qmdHomedir(): string {
   return process.env.HOME || process.env.USERPROFILE || osHomedir() || "/tmp";
 }
 
-/** Resolved config directory (~/.config/qmdx by default). Honors QMD_CONFIG_DIR
+/** Resolved config directory (~/.config/qmdx by default). Honors QMDX_CONFIG_DIR
  *  and XDG_CONFIG_HOME overrides, matching upstream precedence. */
 export function appConfigDir(): string {
-  if (process.env.QMD_CONFIG_DIR) {
-    return process.env.QMD_CONFIG_DIR;
+  if (process.env.QMDX_CONFIG_DIR) {
+    return process.env.QMDX_CONFIG_DIR;
   }
   if (process.env.XDG_CONFIG_HOME) {
     return join(process.env.XDG_CONFIG_HOME, APP_DIR_NAME);

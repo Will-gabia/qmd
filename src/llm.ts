@@ -266,7 +266,7 @@ export type RerankDocument = {
 
 // HuggingFace model URIs for node-llama-cpp
 // Format: hf:<user>/<repo>/<file>
-// Override via QMD_EMBED_MODEL env var (e.g. hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf)
+// Override via QMDX_EMBED_MODEL env var (e.g. hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf)
 const DEFAULT_EMBED_MODEL = "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf";
 const DEFAULT_RERANK_MODEL = "hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf";
 // const DEFAULT_GENERATE_MODEL = "hf:ggml-org/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf";
@@ -289,15 +289,15 @@ export type ModelResolutionConfig = {
 };
 
 export function resolveEmbedModel(config?: ModelResolutionConfig): string {
-  return config?.embed || process.env.QMD_EMBED_MODEL || DEFAULT_EMBED_MODEL;
+  return config?.embed || process.env.QMDX_EMBED_MODEL || DEFAULT_EMBED_MODEL;
 }
 
 export function resolveGenerateModel(config?: ModelResolutionConfig): string {
-  return config?.generate || process.env.QMD_GENERATE_MODEL || DEFAULT_GENERATE_MODEL;
+  return config?.generate || process.env.QMDX_GENERATE_MODEL || DEFAULT_GENERATE_MODEL;
 }
 
 /** Sentinel values that disable reranking entirely. When the resolved rerank
- *  model is one of these (e.g. QMD_RERANK_MODEL=none), the query pipeline
+ *  model is one of these (e.g. QMDX_RERANK_MODEL=none), the query pipeline
  *  skips the local reranker and returns RRF-only scores, so users don't have
  *  to pass --no-rerank on every invocation and no GGUF is downloaded. */
 const RERANK_DISABLED_SENTINELS = new Set(["none", "disabled", "off", "false", "", "no"]);
@@ -309,7 +309,7 @@ export function isRerankDisabled(rerankModelUri: string | undefined | null): boo
 }
 
 export function resolveRerankModel(config?: ModelResolutionConfig): string {
-  const raw = config?.rerank || process.env.QMD_RERANK_MODEL || DEFAULT_RERANK_MODEL;
+  const raw = config?.rerank || process.env.QMDX_RERANK_MODEL || DEFAULT_RERANK_MODEL;
   // Normalize the disabled sentinel to an empty string so downstream code
   // (LlamaCpp constructor, status display) sees no rerank model configured.
   return isRerankDisabled(raw) ? "" : raw;
@@ -469,7 +469,7 @@ function validateGgufFile(filePath: string, modelUri: string): void {
       `To fix this, either:\n` +
       `  1. Try a HuggingFace mirror:  HF_ENDPOINT=https://hf-mirror.com qmd embed\n` +
       `  2. Download the model manually and set the env var, e.g.:\n` +
-      `       QMD_EMBED_MODEL=/path/to/model.gguf qmd embed\n\n` +
+      `       QMDX_EMBED_MODEL=/path/to/model.gguf qmd embed\n\n` +
       `Note: 'qmd search' works without any model downloads.`
     );
   }
@@ -594,7 +594,7 @@ export type LlamaCppConfig = {
   modelCacheDir?: string;
   /**
    * Context size used for query expansion generation contexts.
-   * Default: 2048. Can also be set via QMD_EXPAND_CONTEXT_SIZE.
+   * Default: 2048. Can also be set via QMDX_EXPAND_CONTEXT_SIZE.
    */
   expandContextSize?: number;
   /**
@@ -630,13 +630,13 @@ type ParallelismOptions = {
   envValue?: string;
 };
 
-export function resolveParallelismOverride(envValue = process.env.QMD_EMBED_PARALLELISM): number | undefined {
+export function resolveParallelismOverride(envValue = process.env.QMDX_EMBED_PARALLELISM): number | undefined {
   const normalized = envValue?.trim() ?? "";
   if (!normalized) return undefined;
 
   const parsed = Number(normalized);
   if (!Number.isInteger(parsed) || parsed < 1) {
-    process.stderr.write(`QMD Warning: invalid QMD_EMBED_PARALLELISM="${envValue}", using automatic parallelism.\n`);
+    process.stderr.write(`QMD Warning: invalid QMDX_EMBED_PARALLELISM="${envValue}", using automatic parallelism.\n`);
     return undefined;
   }
 
@@ -658,8 +658,8 @@ export function resolveSafeParallelism(options: ParallelismOptions): number {
 }
 
 export function resolveLlamaGpuMode(
-  envValue = process.env.QMD_LLAMA_GPU,
-  forceCpuValue = process.env.QMD_FORCE_CPU
+  envValue = process.env.QMDX_LLAMA_GPU,
+  forceCpuValue = process.env.QMDX_FORCE_CPU
 ): LlamaGpuMode {
   const forceCpu = forceCpuValue?.trim().toLowerCase() ?? "";
   if (forceCpu && !["false", "off", "none", "disable", "disabled", "0"].includes(forceCpu)) {
@@ -671,7 +671,7 @@ export function resolveLlamaGpuMode(
   if (["false", "off", "none", "disable", "disabled", "0"].includes(normalized)) return false;
   if (normalized === "metal" || normalized === "vulkan" || normalized === "cuda") return normalized;
 
-  process.stderr.write(`QMD Warning: invalid QMD_LLAMA_GPU="${envValue}", using auto GPU selection.\n`);
+  process.stderr.write(`QMD Warning: invalid QMDX_LLAMA_GPU="${envValue}", using auto GPU selection.\n`);
   return "auto";
 }
 
@@ -700,13 +700,13 @@ function resolveExpandContextSize(configValue?: number): number {
     return configValue;
   }
 
-  const envValue = process.env.QMD_EXPAND_CONTEXT_SIZE?.trim();
+  const envValue = process.env.QMDX_EXPAND_CONTEXT_SIZE?.trim();
   if (!envValue) return DEFAULT_EXPAND_CONTEXT_SIZE;
 
   const parsed = Number.parseInt(envValue, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     process.stderr.write(
-      `QMD Warning: invalid QMD_EXPAND_CONTEXT_SIZE="${envValue}", using default ${DEFAULT_EXPAND_CONTEXT_SIZE}.\n`
+      `QMD Warning: invalid QMDX_EXPAND_CONTEXT_SIZE="${envValue}", using default ${DEFAULT_EXPAND_CONTEXT_SIZE}.\n`
     );
     return DEFAULT_EXPAND_CONTEXT_SIZE;
   }
@@ -940,7 +940,7 @@ export class LlamaCpp implements LLM {
         llama = await loadCpuCompatibleLlama();
       } else if (failedGpuInitModes.has(gpuMode)) {
         process.stderr.write(
-          `QMD Warning: skipping previously failed GPU init${gpuMode === "auto" ? "" : ` for QMD_LLAMA_GPU=${gpuMode}`}, using CPU.\n`
+          `QMD Warning: skipping previously failed GPU init${gpuMode === "auto" ? "" : ` for QMDX_LLAMA_GPU=${gpuMode}`}, using CPU.\n`
         );
         llama = await loadCpuCompatibleLlama();
       } else {
@@ -976,7 +976,7 @@ export class LlamaCpp implements LLM {
           // expensive native build/probe attempts in this process.
           failedGpuInitModes.add(gpuMode);
           process.stderr.write(
-            `QMD Warning: GPU init failed${gpuMode === "auto" ? "" : ` for QMD_LLAMA_GPU=${gpuMode}`} (${err instanceof Error ? err.message : String(err)}), falling back to CPU.\n`
+            `QMD Warning: GPU init failed${gpuMode === "auto" ? "" : ` for QMDX_LLAMA_GPU=${gpuMode}`} (${err instanceof Error ? err.message : String(err)}), falling back to CPU.\n`
           );
           llama = await loadCpuCompatibleLlama();
         }
@@ -1212,14 +1212,14 @@ export class LlamaCpp implements LLM {
   // context size" errors even after truncation because the overhead estimate
   // was insufficient.  4096 comfortably fits the largest real-world chunks
   // while staying well below the 40 960-token auto size.
-  // Override with QMD_RERANK_CONTEXT_SIZE env var if you need more headroom.
+  // Override with QMDX_RERANK_CONTEXT_SIZE env var if you need more headroom.
   private static readonly RERANK_CONTEXT_SIZE: number = (() => {
-    const v = parseInt(process.env.QMD_RERANK_CONTEXT_SIZE ?? "", 10);
+    const v = parseInt(process.env.QMDX_RERANK_CONTEXT_SIZE ?? "", 10);
     return Number.isFinite(v) && v > 0 ? v : 4096;
   })();
 
   private static readonly EMBED_CONTEXT_SIZE: number = (() => {
-    const v = parseInt(process.env.QMD_EMBED_CONTEXT_SIZE ?? "", 10);
+    const v = parseInt(process.env.QMDX_EMBED_CONTEXT_SIZE ?? "", 10);
     return Number.isFinite(v) && v > 0 ? v : 2048;
   })();
   private async ensureRerankContexts(): Promise<Awaited<ReturnType<LlamaModel["createRankingContext"]>>[]> {
@@ -1522,7 +1522,7 @@ export class LlamaCpp implements LLM {
     if (isOpenAIChatModel(this.generateModelUri)) {
       try {
         const cfg = resolveOpenAIChatConfig(this.generateModelUri);
-        const maxTokens = parseInt(process.env.QMD_OPENAI_CHAT_MAX_TOKENS ?? "2000", 10) || 2000;
+        const maxTokens = parseInt(process.env.QMDX_OPENAI_CHAT_MAX_TOKENS ?? "2000", 10) || 2000;
         const content = await openaiChatComplete(cfg, {
           messages: buildExpandQueryPrompt(query, intent),
           maxTokens,
@@ -2094,20 +2094,20 @@ export function canUnloadLLM(): boolean {
 // underlying resource, so doctor can answer "is the protection active?"
 // without reaching into env handling directly.
 //
-// Setting `QMD_METAL_KEEP_RESIDENCY=1` opts back into residency sets (with
-// the visible-noise consequences). The legacy `QMD_DISABLE_DARWIN_SAFE_EXIT`
+// Setting `QMDX_METAL_KEEP_RESIDENCY=1` opts back into residency sets (with
+// the visible-noise consequences). The legacy `QMDX_DISABLE_DARWIN_SAFE_EXIT`
 // env var is accepted as a no-op alias for back-compat; it had no effect on
 // Node prior to this fix.
 
 /**
  * Whether QMD's darwin Metal exit-crash mitigation is active in this process:
  *   true  → residency sets disabled, process exit completes silently
- *   false → either non-darwin, or `QMD_METAL_KEEP_RESIDENCY=1` overrode it,
+ *   false → either non-darwin, or `QMDX_METAL_KEEP_RESIDENCY=1` overrode it,
  *           in which case the libggml-metal teardown assertion may fire
  */
 export function isDarwinMetalMitigationActive(): boolean {
   if (process.platform !== "darwin") return false;
-  if (process.env.QMD_METAL_KEEP_RESIDENCY === "1") return false;
+  if (process.env.QMDX_METAL_KEEP_RESIDENCY === "1") return false;
   return process.env.GGML_METAL_NO_RESIDENCY === "1";
 }
 

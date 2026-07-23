@@ -14,11 +14,11 @@ against [Gabia AI Hub](https://ai-hub-gabia.gabia.com) with `bge-m3` +
 ## TL;DR — Gabia AI Hub (no local GGUF)
 
 ```sh
-export QMD_EMBED_MODEL="openai:bge-m3"
-export QMD_GENERATE_MODEL="openai:minimax"
-export QMD_RERANK_MODEL="none"
-export QMD_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
-export QMD_OPENAI_API_KEY="sk-..."
+export QMDX_EMBED_MODEL="openai:bge-m3"
+export QMDX_GENERATE_MODEL="openai:minimax"
+export QMDX_RERANK_MODEL="none"
+export QMDX_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
+export QMDX_OPENAI_API_KEY="sk-..."
 
 qmdx embed -f          # index + embed via remote bge-m3
 qmdx query "..."       # expand (minimax) + search (bge-m3), no rerank
@@ -35,16 +35,16 @@ independently via env var or `index.yml`:
 
 | Role | Env var | Default (local GGUF) | OpenAI-compatible value | API endpoint |
 |---|---|---|---|---|
-| **embed** | `QMD_EMBED_MODEL` | `embeddinggemma-300M` | `openai:<model>` | `POST /v1/embeddings` |
-| **generate** | `QMD_GENERATE_MODEL` | `qmd-query-expansion-1.7B` | `openai:<model>` | `POST /v1/chat/completions` |
-| **rerank** | `QMD_RERANK_MODEL` | `Qwen3-Reranker-0.6B` | `none` (disable) | _(no standard OpenAI API)_ |
+| **embed** | `QMDX_EMBED_MODEL` | `embeddinggemma-300M` | `openai:<model>` | `POST /v1/embeddings` |
+| **generate** | `QMDX_GENERATE_MODEL` | `qmd-query-expansion-1.7B` | `openai:<model>` | `POST /v1/chat/completions` |
+| **rerank** | `QMDX_RERANK_MODEL` | `Qwen3-Reranker-0.6B` | `none` (disable) | _(no standard OpenAI API)_ |
 
 A model URI starting with `openai:` activates the remote HTTP provider for
-that role. The same `QMD_OPENAI_BASE_URL` + `QMD_OPENAI_API_KEY` are shared by
+that role. The same `QMDX_OPENAI_BASE_URL` + `QMDX_OPENAI_API_KEY` are shared by
 the embed and generate providers, so you only set them once.
 
 > **Note:** Reranking has no standard OpenAI API. To skip it (the common choice
-> when running fully remote), use `QMD_RERANK_MODEL=none`. See
+> when running fully remote), use `QMDX_RERANK_MODEL=none`. See
 > [Disabling Reranking](#disabling-reranking) below.
 
 ---
@@ -55,31 +55,31 @@ the embed and generate providers, so you only set them once.
 
 | Variable | Purpose | Example |
 |---|---|---|
-| `QMD_OPENAI_BASE_URL` | Base URL of the OpenAI-compatible API (trailing slashes trimmed) | `https://ai-hub-gabia.gabia.com/v1` |
-| `QMD_OPENAI_API_KEY` | Bearer token sent as `Authorization: Bearer <key>` | `sk-...` |
+| `QMDX_OPENAI_BASE_URL` | Base URL of the OpenAI-compatible API (trailing slashes trimmed) | `https://ai-hub-gabia.gabia.com/v1` |
+| `QMDX_OPENAI_API_KEY` | Bearer token sent as `Authorization: Bearer <key>` | `sk-...` |
 
-Both are required when **either** `QMD_EMBED_MODEL` or `QMD_GENERATE_MODEL`
+Both are required when **either** `QMDX_EMBED_MODEL` or `QMDX_GENERATE_MODEL`
 uses the `openai:` scheme. An error is thrown at first use if either is missing.
 
 ### Embed provider
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `QMD_EMBED_MODEL` | Embedding model; `openai:<name>` activates the HTTP provider | `embeddinggemma-300M` (local) |
-| `QMD_OPENAI_EMBED_BATCH_SIZE` | Max texts per `/embeddings` request | `64` |
+| `QMDX_EMBED_MODEL` | Embedding model; `openai:<name>` activates the HTTP provider | `embeddinggemma-300M` (local) |
+| `QMDX_OPENAI_EMBED_BATCH_SIZE` | Max texts per `/embeddings` request | `64` |
 
 ### Generate provider
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `QMD_GENERATE_MODEL` | Generate model; `openai:<name>` activates the HTTP provider | `qmd-query-expansion-1.7B` (local) |
-| `QMD_OPENAI_CHAT_MAX_TOKENS` | `max_tokens` for `/chat/completions` (expandQuery) | `2000` |
+| `QMDX_GENERATE_MODEL` | Generate model; `openai:<name>` activates the HTTP provider | `qmd-query-expansion-1.7B` (local) |
+| `QMDX_OPENAI_CHAT_MAX_TOKENS` | `max_tokens` for `/chat/completions` (expandQuery) | `2000` |
 
 ### Rerank
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `QMD_RERANK_MODEL` | Rerank model; `none`/`disabled`/`off`/`false`/`no` disables reranking | `Qwen3-Reranker-0.6B` (local) |
+| `QMDX_RERANK_MODEL` | Rerank model; `none`/`disabled`/`off`/`false`/`no` disables reranking | `Qwen3-Reranker-0.6B` (local) |
 
 ---
 
@@ -96,7 +96,7 @@ models:
 ```
 
 **Resolution precedence** (highest to lowest):
-1. Env var (`QMD_EMBED_MODEL` / `QMD_GENERATE_MODEL` / `QMD_RERANK_MODEL`)
+1. Env var (`QMDX_EMBED_MODEL` / `QMDX_GENERATE_MODEL` / `QMDX_RERANK_MODEL`)
 2. `index.yml` `models.<role>`
 3. Built-in default (local GGUF)
 
@@ -110,16 +110,16 @@ models:
 
 ## Embedding Provider (`openai:`)
 
-Activates when `QMD_EMBED_MODEL` uses the `openai:<model>` scheme. Calls
-`POST {QMD_OPENAI_BASE_URL}/embeddings` with `{ model, input: [...] }` and
+Activates when `QMDX_EMBED_MODEL` uses the `openai:<model>` scheme. Calls
+`POST {QMDX_OPENAI_BASE_URL}/embeddings` with `{ model, input: [...] }` and
 maps the returned vectors into the SQLite vector table.
 
 ```sh
-export QMD_EMBED_MODEL="openai:bge-m3"
-export QMD_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
-export QMD_OPENAI_API_KEY="sk-..."
+export QMDX_EMBED_MODEL="openai:bge-m3"
+export QMDX_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
+export QMDX_OPENAI_API_KEY="sk-..."
 # Optional: texts per /embeddings request (default 64)
-# export QMD_OPENAI_EMBED_BATCH_SIZE=64
+# export QMDX_OPENAI_EMBED_BATCH_SIZE=64
 
 qmdx embed -f          # (re-)embed using the remote model
 qmdx vsearch "..."     # query embeddings also go through the provider
@@ -142,16 +142,16 @@ qmdx vsearch "..."     # query embeddings also go through the provider
 
 ## Generate Provider (`openai:` chat completions)
 
-Activates when `QMD_GENERATE_MODEL` uses the `openai:<model>` scheme. Calls
-`POST {QMD_OPENAI_BASE_URL}/chat/completions` to expand the query into
+Activates when `QMDX_GENERATE_MODEL` uses the `openai:<model>` scheme. Calls
+`POST {QMDX_OPENAI_BASE_URL}/chat/completions` to expand the query into
 `lex:`/`vec:`/`hyde:` variants before search.
 
 ```sh
-export QMD_GENERATE_MODEL="openai:minimax"
-export QMD_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
-export QMD_OPENAI_API_KEY="sk-..."
+export QMDX_GENERATE_MODEL="openai:minimax"
+export QMDX_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
+export QMDX_OPENAI_API_KEY="sk-..."
 # Optional: raise for reasoning models whose chain-of-thought eats the budget
-# export QMD_OPENAI_CHAT_MAX_TOKENS=4000
+# export QMDX_OPENAI_CHAT_MAX_TOKENS=4000
 
 qmdx query "your query"        # expand (minimax) + search
 ```
@@ -166,7 +166,7 @@ qmdx query "your query"        # expand (minimax) + search
   `reasoning_content` and the final answer in `content`. Only `content` is
   read, but a generous `max_tokens` is required or the request ends with
   `finish_reason=length` and `content=null`. Raise
-  `QMD_OPENAI_CHAT_MAX_TOKENS` if you see "returned no content" errors.
+  `QMDX_OPENAI_CHAT_MAX_TOKENS` if you see "returned no content" errors.
 - On any error the expansion falls back to the original query, so search still
   returns results.
 
@@ -181,7 +181,7 @@ fully against remote providers you typically disable it.
 Set the rerank model to a sentinel value:
 
 ```sh
-export QMD_RERANK_MODEL="none"   # also accepts: disabled / off / false / no
+export QMDX_RERANK_MODEL="none"   # also accepts: disabled / off / false / no
 qmdx query "..."                # no --no-rerank needed, no GGUF download
 ```
 
@@ -211,18 +211,18 @@ echo "# Embedding Models\nbge-m3 produces 1024-dimensional vectors..." > note.md
 qmdx collection add . --name test
 
 # 2. Embed via remote bge-m3 (no GGUF download)
-QMD_EMBED_MODEL=openai:bge-m3 \
-QMD_OPENAI_BASE_URL=https://ai-hub-gabia.gabia.com/v1 \
-QMD_OPENAI_API_KEY=sk-... \
+QMDX_EMBED_MODEL=openai:bge-m3 \
+QMDX_OPENAI_BASE_URL=https://ai-hub-gabia.gabia.com/v1 \
+QMDX_OPENAI_API_KEY=sk-... \
 qmdx embed -f
 # → "Embedded 1 chunks from 1 documents in 0s", vector table float[1024]
 
 # 3. Query via remote minimax (expand) + bge-m3 (search), no rerank
-QMD_EMBED_MODEL=openai:bge-m3 \
-QMD_GENERATE_MODEL=openai:minimax \
-QMD_RERANK_MODEL=none \
-QMD_OPENAI_BASE_URL=https://ai-hub-gabia.gabia.com/v1 \
-QMD_OPENAI_API_KEY=sk-... \
+QMDX_EMBED_MODEL=openai:bge-m3 \
+QMDX_GENERATE_MODEL=openai:minimax \
+QMDX_RERANK_MODEL=none \
+QMDX_OPENAI_BASE_URL=https://ai-hub-gabia.gabia.com/v1 \
+QMDX_OPENAI_API_KEY=sk-... \
 qmdx query "multilingual embedding dimension"
 # → Expands to ~8-11 queries, ranks note.md at 100%
 ```
@@ -234,7 +234,7 @@ qmdx query "multilingual embedding dimension"
 - **Embedding:** `bge-m3` (1024d)
 - **Chat (generate):** `minimax` (reasoning), `qwen3`, `qwen3-plus`, `gpt-5`,
   `gpt-5-mini`, `gemini-3-pro`, `claude-sonnet`, `kimi`, ...
-- **Rerank:** none (use `QMD_RERANK_MODEL=none`)
+- **Rerank:** none (use `QMDX_RERANK_MODEL=none`)
 
 Check the current list with:
 

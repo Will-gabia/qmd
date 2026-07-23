@@ -10,9 +10,9 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 // destructor (ggml-org/llama.cpp#22593, fix open as #22595) and dumps a
 // multi-kB backtrace at process exit even when tests pass. The env var must
 // be set BEFORE the subprocess starts because libggml-metal reads it via
-// libc getenv at module-load time. Opt out with QMD_METAL_KEEP_RESIDENCY=1.
+// libc getenv at module-load time. Opt out with QMDX_METAL_KEEP_RESIDENCY=1.
 const darwinMetalEnv =
-  process.platform === "darwin" && process.env.QMD_METAL_KEEP_RESIDENCY !== "1"
+  process.platform === "darwin" && process.env.QMDX_METAL_KEEP_RESIDENCY !== "1"
     ? { GGML_METAL_NO_RESIDENCY: "1" }
     : {};
 

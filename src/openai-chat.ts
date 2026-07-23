@@ -2,9 +2,9 @@
  * OpenAI-compatible chat-completion provider.
  *
  * Activated when the active generate model URI uses the `openai:` scheme, e.g.
- *   QMD_GENERATE_MODEL=openai:minimax
- *   QMD_OPENAI_BASE_URL=https://ai-hub-gabia.gabia.com/v1
- *   QMD_OPENAI_API_KEY=sk-...
+ *   QMDX_GENERATE_MODEL=openai:minimax
+ *   QMDX_OPENAI_BASE_URL=https://ai-hub-gabia.gabia.com/v1
+ *   QMDX_OPENAI_API_KEY=sk-...
  *
  * Reuses the same base URL + key as the embedding provider. Calls the standard
  * POST {baseUrl}/chat/completions endpoint and returns the assistant message
@@ -104,7 +104,7 @@ export async function openaiChatComplete(
     const reason = choice?.finish_reason ?? "unknown";
     throw new Error(
       `OpenAI chat ${url} returned no content (finish_reason=${reason}). ` +
-        `For reasoning models, raise QMD_OPENAI_CHAT_MAX_TOKENS (default 2000).`
+        `For reasoning models, raise QMDX_OPENAI_CHAT_MAX_TOKENS (default 2000).`
     );
   }
   return content;

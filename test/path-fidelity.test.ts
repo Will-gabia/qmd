@@ -43,7 +43,7 @@ import type { CollectionConfig } from "../src/collections.js";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(thisDir, "..");
-const qmdScript = join(projectRoot, "src", "cli", "qmd.ts");
+const qmdScript = join(projectRoot, "src", "cli", "qmdx.ts");
 const isBunRuntime = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 const tsxCli = join(projectRoot, "node_modules", "tsx", "dist", "cli.mjs");
 
@@ -60,9 +60,9 @@ async function runQmd(
     env: {
       ...process.env,
       INDEX_PATH: opts.dbPath,
-      QMD_CONFIG_DIR: opts.configDir,
+      QMDX_CONFIG_DIR: opts.configDir,
       PWD: opts.cwd,
-      QMD_DOCTOR_DEVICE_PROBE: "0",
+      QMDX_DOCTOR_DEVICE_PROBE: "0",
       ...(opts.env ?? {}),
     },
     stdio: ["ignore", "pipe", "pipe"],

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { findLocalConfigPath, getLocalDbPath } from "../src/collections.js";
 
 function cliCommandArgs(command: string): { bin: string; args: string[] } {
-  const cliPath = join(process.cwd(), "src/cli/qmd.ts");
+  const cliPath = join(process.cwd(), "src/cli/qmdx.ts");
   if (process.versions.bun) {
     return { bin: process.execPath, args: [cliPath, command] };
   }
@@ -79,9 +79,9 @@ describe("local .qmd project config", () => {
         HOME: home,
         XDG_CONFIG_HOME: join(home, ".config"),
         XDG_CACHE_HOME: join(home, ".cache"),
-        QMD_EMBED_MODEL: "env-embed-model",
-        QMD_RERANK_MODEL: "env-rerank-model",
-        QMD_GENERATE_MODEL: "env-generate-model",
+        QMDX_EMBED_MODEL: "env-embed-model",
+        QMDX_RERANK_MODEL: "env-rerank-model",
+        QMDX_GENERATE_MODEL: "env-generate-model",
       },
     });
 

@@ -1,11 +1,11 @@
-# QMD MCP Server Setup
+# QMDx MCP Server Setup
 
 ## Install
 
 ```bash
-npm install -g @tobilu/qmd
-qmd collection add ~/path/to/markdown --name myknowledge
-qmd embed
+npm install -g qmdx
+qmdx collection add ~/path/to/markdown --name myknowledge
+qmdx embed
 ```
 
 ## Configure MCP Client
@@ -14,7 +14,7 @@ qmd embed
 ```json
 {
   "mcpServers": {
-    "qmd": { "command": "qmd", "args": ["mcp"] }
+    "qmdx": { "command": "qmdx", "args": ["mcp"] }
   }
 }
 ```
@@ -23,7 +23,7 @@ qmd embed
 ```json
 {
   "mcpServers": {
-    "qmd": { "command": "qmd", "args": ["mcp"] }
+    "qmdx": { "command": "qmdx", "args": ["mcp"] }
   }
 }
 ```
@@ -33,7 +33,7 @@ qmd embed
 {
   "mcp": {
     "servers": {
-      "qmd": { "command": "qmd", "args": ["mcp"] }
+      "qmdx": { "command": "qmdx", "args": ["mcp"] }
     }
   }
 }
@@ -42,9 +42,9 @@ qmd embed
 ## HTTP Mode
 
 ```bash
-qmd mcp --http              # Port 8181
-qmd mcp --http --daemon     # Background
-qmd mcp stop                # Stop daemon
+qmdx mcp --http              # Port 8181
+qmdx mcp --http --daemon     # Background
+qmdx mcp stop                # Stop daemon
 ```
 
 ## Tools
@@ -97,6 +97,6 @@ Index health and collections. No params.
 
 ## Troubleshooting
 
-- **Not starting**: `which qmd`, `qmd mcp` manually
-- **No results**: `qmd collection list`, `qmd embed`
+- **Not starting**: `which qmdx`, `qmdx mcp` manually
+- **No results**: `qmdx collection list`, `qmdx embed`
 - **Slow first search**: Normal, models loading (~3GB)

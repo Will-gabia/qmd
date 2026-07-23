@@ -16,12 +16,12 @@ describe("Node ESM entrypoints", () => {
     });
 
     const indexPath = join(mkdtempSync(join(tmpdir(), "qmd-index-")), "nested", "idx");
-    const output = execFileSync(process.execPath, ["dist/cli/qmd.js", "--index", indexPath, "--version"], {
+    const output = execFileSync(process.execPath, ["dist/cli/qmdx.js", "--index", indexPath, "--version"], {
       cwd: repoRoot,
       encoding: "utf-8",
       stdio: "pipe",
     });
 
-    expect(output).toContain("qmd ");
+    expect(output).toContain("qmdx ");
   }, 120_000);
 });

@@ -120,22 +120,22 @@
           '';
 
           installPhase = ''
-            mkdir -p $out/lib/qmd
+            mkdir -p $out/lib/qmdx
             mkdir -p $out/bin
 
-            cp -r node_modules $out/lib/qmd/
-            cp -r src $out/lib/qmd/
-            cp package.json $out/lib/qmd/
+            cp -r node_modules $out/lib/qmdx/
+            cp -r src $out/lib/qmdx/
+            cp package.json $out/lib/qmdx/
 
-            makeWrapper ${pkgs.bun}/bin/bun $out/bin/qmd \
-              --add-flags "$out/lib/qmd/src/cli/qmd.ts" \
+            makeWrapper ${pkgs.bun}/bin/bun $out/bin/qmdx \
+              --add-flags "$out/lib/qmdx/src/cli/qmdx.ts" \
               --set DYLD_LIBRARY_PATH "${pkgs.sqlite.out}/lib" \
               --set LD_LIBRARY_PATH "${pkgs.sqlite.out}/lib"
           '';
 
           meta = with pkgs.lib; {
             description = "On-device search engine for markdown notes, meeting transcripts, and knowledge bases";
-            homepage = "https://github.com/tobi/qmd";
+            homepage = "https://github.com/Will-gabia/qmdx";
             license = licenses.mit;
             platforms = platforms.unix;
           };
@@ -149,7 +149,7 @@
 
         apps.default = {
           type = "app";
-          program = "${qmd}/bin/qmd";
+          program = "${qmd}/bin/qmdx";
         };
 
         devShells.default = pkgs.mkShell {
@@ -161,7 +161,7 @@
           shellHook = ''
             export BREW_PREFIX="''${BREW_PREFIX:-${sqliteWithExtensions.out}}"
             echo "QMD development shell"
-            echo "Run: bun src/cli/qmd.ts <command>"
+            echo "Run: bun src/cli/qmdx.ts <command>"
           '';
         };
       }
