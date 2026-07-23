@@ -123,8 +123,39 @@ qmdx status          # 현재 인덱스 상태
 
 ---
 
+## OpenAI 호환 엔드포인트 / Ollama 사용 (한글 요약)
+
+qmdx 는 `QMDX_EMBED_MODEL`, `QMDX_GENERATE_MODEL` 에 `openai:<모델>` 스킴을 쓰면
+OpenAI 호환 HTTP 엔드포인트로 임베딩과 쿼리 확장을 위탁할 수 있습니다. 로컬
+[Ollama](https://ollama.com) 서버(`http://127.0.0.1:11434/v1`)에서도 잘 동작합니다.
+
+```sh
+ollama pull bge-m3   # 임베딩
+ollama pull qwen3    # 쿼리 확장 (생성)
+
+export QMDX_EMBED_MODEL="openai:bge-m3"
+export QMDX_GENERATE_MODEL="openai:qwen3"
+export QMDX_RERANK_MODEL="none"                        # 리랭크는 로컬 전용
+export QMDX_OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+export QMDX_OPENAI_API_KEY="any_key"                  # Ollama 는 무시
+
+qmdx embed -f
+qmdx query "검색어"
+```
+
+> **리랭크는 로컬 전용입니다.** OpenAI 표준 리랭크 API 가 없고, Ollama 의
+> `dengcao/Qwen3-Reranker` 챗 모델은 `/v1/chat/completions` 로 `yes`/`no`
+> 로짓을 내지 않아 점수 산출이 불가합니다. 원격 엔드포인트를 쓸 때는
+> `QMDX_RERANK_MODEL=none` 으로 리랭크를 꺼고 RRF (BM25 + 벡터) 결과만
+> 사용하세요. 로컬 GGUF 리랭커(`node-llama-cpp` 가 직접 `yes`/`no` 로짓을
+> 읽는 경로)를 함께 쓰면, Ollama 로 임베딩+생성만 위탁하고 리랭크는 로컬에서
+> 돌리는 조합도 가능합니다. 자세한 설정은
+> [OPENAI-PROVIDERS.md](OPENAI-PROVIDERS.md) 를 참고하세요.
+
+---
+
 ## 참고
 
 - 멀티 프로젝트 인덱스 분리: [PROJECT-ISOLATION.ko.md](PROJECT-ISOLATION.ko.md)
-- OpenAI 호환 모델 사용: [OPENAI-PROVIDERS.md](OPENAI-PROVIDERS.md)
+- OpenAI 호환 모델 / Ollama: [OPENAI-PROVIDERS.md](OPENAI-PROVIDERS.md)
 - 주요 기능: README.md 상단 "Highlights"

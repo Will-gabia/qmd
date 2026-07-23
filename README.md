@@ -18,9 +18,14 @@ re-ranking — all running locally via node-llama-cpp with GGUF models.
 - **OpenAI-compatible providers.** The `openai:` model scheme routes embeddings
   to `/v1/embeddings` and query expansion to `/v1/chat/completions`, so you can
   use a remote OpenAI-compatible endpoint (e.g. Gabia AI Hub with `bge-m3` +
-  `minimax`) instead of downloading local GGUF weights. Reranking can be
-  disabled with `QMDX_RERANK_MODEL=none` (it still uses the local GGUF reranker
-  by default, since there is no standard OpenAI rerank API). Full configuration
+  `minimax`, or a local [Ollama](https://ollama.com) server at
+  `http://127.0.0.1:11434/v1`) instead of downloading local GGUF weights.
+  **Reranking is local-only** — there is no standard OpenAI rerank API, and the
+  Ollama `dengcao/Qwen3-Reranker` chat model does not produce usable
+  `yes`/`no` logits through `/v1/chat/completions`; Qwen3-Reranker only works
+  via `node-llama-cpp`'s native `createRankingContext` (the default). When
+  running against a remote endpoint, disable reranking with
+  `QMDX_RERANK_MODEL=none` (returns RRF-only scores). Full configuration
   reference: [docs/OPENAI-PROVIDERS.md](docs/OPENAI-PROVIDERS.md).
 
 ---
@@ -574,11 +579,18 @@ Supported model families:
 
 QMDx can route embeddings (`/v1/embeddings`) and query expansion
 (`/v1/chat/completions`) to remote OpenAI-compatible HTTP endpoints via the
-`openai:<model>` scheme, and disable reranking with `QMDX_RERANK_MODEL=none`.
-This lets you run QMDx without downloading any local GGUF weights — for
-example entirely against Gabia AI Hub with `bge-m3` + `minimax`.
+`openai:<model>` scheme — for example Gabia AI Hub (`bge-m3` + `minimax`) or a
+local [Ollama](https://ollama.com) server at `http://127.0.0.1:11434/v1`.
+
+> **Reranking is local-only.** There is no standard OpenAI rerank API, and
+> Ollama's `dengcao/Qwen3-Reranker` chat model does not produce usable
+> `yes`/`no` logits through the chat-completions endpoint. Reranking therefore
+> stays on the local GGUF `Qwen3-Reranker-0.6B` (read via `node-llama-cpp`'s
+> native ranking context), or is disabled with `QMDX_RERANK_MODEL=none` to fall
+> back to RRF-only (BM25 + vector) ranking when running fully remote.
 
 ```sh
+# Remote example (Gabia AI Hub) — embed + generate remote, rerank disabled
 export QMDX_EMBED_MODEL="openai:bge-m3"
 export QMDX_GENERATE_MODEL="openai:minimax"
 export QMDX_RERANK_MODEL="none"
@@ -589,9 +601,21 @@ qmdx embed -f          # index + embed via remote bge-m3
 qmdx query "..."       # expand (minimax) + search (bge-m3), no rerank
 ```
 
+```sh
+# Local Ollama example — embed + generate via Ollama, rerank disabled
+ollama pull bge-m3 && ollama pull qwen3
+export QMDX_EMBED_MODEL="openai:bge-m3"
+export QMDX_GENERATE_MODEL="openai:qwen3"
+export QMDX_RERANK_MODEL="none"                          # rerank is local-only
+export QMDX_OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+export QMDX_OPENAI_API_KEY="any_key"                     # ignored by Ollama
+qmdx query "..."
+```
+
 For the full configuration reference (all env vars, `index.yml` persistence,
-resolution precedence, reasoning-model tuning, and an end-to-end verification
-walkthrough), see **[docs/OPENAI-PROVIDERS.md](docs/OPENAI-PROVIDERS.md)**.
+resolution precedence, reasoning-model tuning, the dedicated Ollama section,
+and end-to-end verification walkthroughs), see
+**[docs/OPENAI-PROVIDERS.md](docs/OPENAI-PROVIDERS.md)**.
 
 ## Installation
 

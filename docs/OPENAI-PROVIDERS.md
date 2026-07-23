@@ -199,6 +199,77 @@ of configuration.
 
 ---
 
+## Running against Ollama (local)
+
+[Ollama](https://ollama.com) exposes an OpenAI-compatible API at
+`http://127.0.0.1:11434/v1`. QMDx can use it as the embed and/or generate
+provider — **but not as the rerank provider.**
+
+> **Reranking is local-only.** There is no standard OpenAI rerank API, and
+> Ollama does not host a working rerank endpoint. The dedicated
+> `dengcao/Qwen3-Reranker-0.6B` chat model sold as a "reranker" on Ollama is
+> [broken as a reranker](https://ollama.com/dengcao/Qwen3-Reranker-0.6B) — it
+> does not emit `yes`/`no` logits through `/v1/chat/completions`, so it cannot
+> produce usable relevance scores (see the dengcao README's own warning that
+> "as of 2025-06-11, Ollama does not yet support rerank models"). Qwen3-Reranker
+> only works as a reranker when loaded as GGUF directly by `node-llama-cpp`
+> (the QMDx default path), which reads the `yes`/`no` logits via the native
+> `createRankingContext` API Ollama does not expose.
+>
+> Accept this tradeoff: when routing to Ollama, **disable reranking** and rely on
+> RRF (BM25 + vector) fusion alone. See
+> [Disabling Reranking](#disabling-reranking).
+
+### Quick start with Ollama
+
+```sh
+# 1. Pull models in Ollama
+ollama pull bge-m3                  # embedding model (1024d)
+ollama pull qwen3                   # generate model for query expansion
+# (do NOT bother pulling a Qwen3-Reranker chat model — it won't work as a rerank
+#  through the OpenAI endpoint; see the note above)
+
+# 2. Point QMDx at Ollama's OpenAI-compatible endpoint and disable rerank
+export QMDX_EMBED_MODEL="openai:bge-m3"
+export QMDX_GENERATE_MODEL="openai:qwen3"
+export QMDX_RERANK_MODEL="none"                    # rerank is local-only
+export QMDX_OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+export QMDX_OPENAI_API_KEY="any_key"              # Ollama ignores the key value
+
+qmdx embed -f          # index + embed via local Ollama bge-m3
+qmdx query "..."       # expand (qwen3) + search (bge-m3), RRF-only (no rerank)
+qmdx vsearch "..."      # vector-only, skips rerank automatically
+```
+
+**Ollama specifics:**
+- The API key is ignored by Ollama; any non-empty string works (QMDx still
+  requires the env var to be set when any `openai:` model is configured).
+- There is no per-provider API key — the embed and generate providers share
+  the same `QMDX_OPENAI_BASE_URL` + `QMDX_OPENAI_API_KEY`.
+- The vector table **auto-adapts to the returned dimensionality** (e.g.
+  `bge-m3` = 1024d); switching models requires `qmdx embed -f` to rebuild
+  vectors.
+
+### What if I really want reranking?
+
+Run the **local** GGUF reranker (the QMDx default) instead of routing to Ollama:
+leave `QMDX_RERANK_MODEL` unset (or point it at the local GGUF URI) and ensure
+`node-llama-cpp` can load the model — `qmdx doctor` will report whether the
+local llama backend initializes. You can mix: use Ollama for **embed +
+generate** and the **local** GGUF for **rerank**. This downloads one ~600MB
+GGUF and requires a working `node-llama-cpp` backend on the host:
+
+```sh
+export QMDX_EMBED_MODEL="openai:bge-m3"
+export QMDX_GENERATE_MODEL="openai:qwen3"
+# QMDX_RERANK_MODEL stays unset → default local Qwen3-Reranker GGUF is used
+export QMDX_OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+export QMDX_OPENAI_API_KEY="any_key"
+qmdx query "..."   # expand(qwen3@ollama) + search(bge-m3@ollama) + rerank(local GGUF)
+```
+
+---
+
 ## End-to-end verification (Gabia AI Hub)
 
 Verified against `https://ai-hub-gabia.gabia.com/v1` with `bge-m3` +
