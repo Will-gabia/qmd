@@ -108,13 +108,13 @@ function enableWal(db: Database, budgetMs: number): void {
  * opens.
  *
  * Default 120_000 ms outlasts the worst-case batch commit on a multi-GB
- * index. Override with `QMD_SQLITE_BUSY_TIMEOUT` (value in milliseconds; `0`
+ * index. Override with `QMDX_SQLITE_BUSY_TIMEOUT` (value in milliseconds; `0`
  * restores the upstream fail-fast behaviour). See
  * https://bun.sh/docs/api/sqlite#busy-timeout.
  */
 export function openDatabase(path: string): Database {
   const db = new _Database(path) as Database;
-  const raw = process.env.QMD_SQLITE_BUSY_TIMEOUT;
+  const raw = process.env.QMDX_SQLITE_BUSY_TIMEOUT;
   const parsed = raw !== undefined && raw !== "" ? Number(raw) : Number.NaN;
   const busyTimeoutMs = Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 120_000;
   db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
@@ -150,7 +150,7 @@ export function loadSqliteVec(db: Database): void {
   if (!_sqliteVecLoad) {
     const hint = isBun && process.platform === "darwin"
       ? "On macOS with Bun, install Homebrew SQLite: brew install sqlite\n" +
-        "Or install qmd with npm instead: npm install -g @tobilu/qmd"
+        "Or install qmdx with npm instead: npm install -g qmdx"
       : "Ensure the sqlite-vec native module is installed correctly.";
     throw new Error(`sqlite-vec extension is unavailable. ${hint}`);
   }

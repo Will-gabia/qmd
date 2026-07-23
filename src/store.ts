@@ -18,7 +18,7 @@ import { createHash } from "crypto";
 import { readFileSync, realpathSync, statSync, mkdirSync } from "node:fs";
 // Note: node:path resolve is not imported — we export our own cross-platform resolve()
 import fastGlob from "fast-glob";
-import { qmdHomedir } from "./paths.js";
+import { qmdHomedir, appCacheDir } from "./paths.js";
 import {
   LlamaCpp,
   getDefaultLlamaCpp,
@@ -28,6 +28,7 @@ import {
   DEFAULT_EMBED_MODEL_URI,
   DEFAULT_RERANK_MODEL_URI,
   DEFAULT_GENERATE_MODEL_URI,
+  isRerankDisabled,
   type RerankDocument,
   type ILLMSession,
 } from "./llm.js";
@@ -560,8 +561,7 @@ export function getDefaultDbPath(indexName: string = "index"): string {
     );
   }
 
-  const cacheDir = process.env.XDG_CACHE_HOME || resolve(homedir(), ".cache");
-  const qmdCacheDir = resolve(cacheDir, "qmd");
+  const qmdCacheDir = appCacheDir();
   try { mkdirSync(qmdCacheDir, { recursive: true }); } catch { }
   return resolve(qmdCacheDir, `${indexName}.sqlite`);
 }
@@ -3649,7 +3649,6 @@ export async function searchVec(db: Database, query: string, model: string, limi
   // IMPORTANT: We use a two-step query approach here because sqlite-vec virtual tables
   // hang indefinitely when combined with JOINs in the same query. Do NOT try to
   // "optimize" this by combining into a single query with JOINs - it will break.
-  // See: https://github.com/tobi/qmd/pull/23
 
   // Step 1: Get vector matches from sqlite-vec (no JOINs allowed)
   const vecResults = db.prepare(`
@@ -4739,7 +4738,7 @@ export async function hybridQuery(
   const collection = options?.collection;
   const explain = options?.explain ?? false;
   const intent = options?.intent;
-  const skipRerank = options?.skipRerank ?? false;
+  const skipRerank = (options?.skipRerank ?? false) || isRerankDisabled(store.llm?.rerankModelName);
   const hooks = options?.hooks;
 
   const rankedLists: RankedResult[][] = [];
@@ -5137,7 +5136,7 @@ export async function structuredSearch(
   const candidateLimit = options?.candidateLimit ?? RERANK_CANDIDATE_LIMIT;
   const explain = options?.explain ?? false;
   const intent = options?.intent;
-  const skipRerank = options?.skipRerank ?? false;
+  const skipRerank = (options?.skipRerank ?? false) || isRerankDisabled(store.llm?.rerankModelName);
   const hooks = options?.hooks;
 
   const collections = options?.collections;

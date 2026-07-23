@@ -1,95 +1,96 @@
-# QMD - Query Markup Documents
+# QMDx - Query Markup Documents
 
 Use Bun instead of Node.js (`bun` not `node`, `bun install` not `npm install`).
 
 ## Commands
 
 ```sh
-qmd collection add . --name <n>   # Create/index collection
-qmd collection list               # List all collections with details
-qmd collection remove <name>      # Remove a collection by name
-qmd collection rename <old> <new> # Rename a collection
-qmd init                          # Create a project-local .qmd index
-qmd ls [collection[/path]]        # List collections or files in a collection
-qmd context add [path] "text"     # Add context for path (defaults to current dir)
-qmd context list                  # List all contexts
-qmd context check                 # Check for collections/paths missing context
-qmd context rm <path>             # Remove context
-qmd get <file>[:from[:count]]     # Get by path or docid (#abc123); optional line range
-qmd multi-get <pattern>           # Get multiple docs by glob or comma-separated list
-qmd status                        # Show index status and collections
-qmd doctor                        # Diagnose config, index, model, and device issues
-qmd update                        # Re-index collections; configured update hooks run first
-qmd embed                         # Generate vector embeddings (uses node-llama-cpp)
-qmd query <query>                 # Search with query expansion + reranking (recommended)
-qmd search <query>                # Full-text keyword search (BM25, no LLM)
-qmd vsearch <query>               # Vector similarity search (no reranking)
-qmd bench <fixture.json>          # Run search-quality benchmarks
-qmd mcp                           # Start MCP server (stdio transport)
-qmd mcp --http [--port N]         # Start MCP server (HTTP, default port 8181)
-qmd mcp --http --daemon           # Start as background daemon
-qmd mcp stop                      # Stop background MCP daemon
+qmdx collection add . --name <n>   # Create/index collection
+qmdx collection list               # List all collections with details
+qmdx collection remove <name>      # Remove a collection by name
+qmdx collection rename <old> <new> # Rename a collection
+qmdx init                          # Create a project-local .qmdx index
+qmdx init --index-dir <dir>        # Create an isolated index in <dir> (multi-project)
+qmdx ls [collection[/path]]        # List collections or files in a collection
+qmdx context add [path] "text"     # Add context for path (defaults to current dir)
+qmdx context list                  # List all contexts
+qmdx context check                 # Check for collections/paths missing context
+qmdx context rm <path>             # Remove context
+qmdx get <file>[:from[:count]]     # Get by path or docid (#abc123); optional line range
+qmdx multi-get <pattern>           # Get multiple docs by glob or comma-separated list
+qmdx status                        # Show index status and collections
+qmdx doctor                        # Diagnose config, index, model, and device issues
+qmdx update                        # Re-index collections; configured update hooks run first
+qmdx embed                         # Generate vector embeddings (uses node-llama-cpp)
+qmdx query <query>                 # Search with query expansion + reranking (recommended)
+qmdx search <query>                # Full-text keyword search (BM25, no LLM)
+qmdx vsearch <query>               # Vector similarity search (no reranking)
+qmdx bench <fixture.json>          # Run search-quality benchmarks
+qmdx mcp                           # Start MCP server (stdio transport)
+qmdx mcp --http [--port N]         # Start MCP server (HTTP, default port 8181)
+qmdx mcp --http --daemon           # Start as background daemon
+qmdx mcp stop                      # Stop background MCP daemon
 ```
 
 ## Collection Management
 
 ```sh
 # List all collections
-qmd collection list
+qmdx collection list
 
 # Create a collection with explicit name
-qmd collection add ~/Documents/notes --name mynotes --mask '**/*.md'
+qmdx collection add ~/Documents/notes --name mynotes --mask '**/*.md'
 
 # Remove a collection
-qmd collection remove mynotes
+qmdx collection remove mynotes
 
 # Rename a collection
-qmd collection rename mynotes my-notes
+qmdx collection rename mynotes my-notes
 
 # Show collection details
-qmd collection show mynotes
+qmdx collection show mynotes
 
-# Set or clear the pre-update hook (runs before re-indexing on `qmd update`)
-qmd collection update-cmd mynotes 'git pull --ff-only'
-qmd collection update-cmd mynotes            # clear
+# Set or clear the pre-update hook (runs before re-indexing on `qmdx update`)
+qmdx collection update-cmd mynotes 'git pull --ff-only'
+qmdx collection update-cmd mynotes            # clear
 
 # Include or exclude from default (unscoped) queries
-qmd collection exclude mynotes
-qmd collection include mynotes
+qmdx collection exclude mynotes
+qmdx collection include mynotes
 
 # List all files in a collection
-qmd ls mynotes
+qmdx ls mynotes
 
 # List files with a path prefix
-qmd ls journals/2025
-qmd ls qmd://journals/2025
+qmdx ls journals/2025
+qmdx ls qmd://journals/2025
 ```
 
 ## Context Management
 
 ```sh
 # Add context to current directory (auto-detects collection)
-qmd context add "Description of these files"
+qmdx context add "Description of these files"
 
 # Add context to a specific path
-qmd context add /subfolder "Description for subfolder"
+qmdx context add /subfolder "Description for subfolder"
 
 # Add global context to all collections (system message)
-qmd context add / "Always include this context"
+qmdx context add / "Always include this context"
 
 # Add context using virtual paths
-qmd context add qmd://journals/ "Context for entire journals collection"
-qmd context add qmd://journals/2024 "Journal entries from 2024"
+qmdx context add qmd://journals/ "Context for entire journals collection"
+qmdx context add qmd://journals/2024 "Journal entries from 2024"
 
 # List all contexts
-qmd context list
+qmdx context list
 
 # Check for collections or paths without context
-qmd context check
+qmdx context check
 
 # Remove context
-qmd context rm qmd://journals/2024
-qmd context rm /  # Remove global context
+qmdx context rm qmd://journals/2024
+qmdx context rm /  # Remove global context
 ```
 
 ## Document IDs (docid)
@@ -99,15 +100,15 @@ Docids are shown in search results as `#abc123` and can be used with `get` and `
 
 ```sh
 # Search returns docid in results
-qmd search "query" --json
+qmdx search "query" --json
 # Output: [{"docid": "#abc123", "score": 0.85, "file": "docs/readme.md", ...}]
 
 # Get document by docid
-qmd get "#abc123"
-qmd get abc123              # Leading # is optional
+qmdx get "#abc123"
+qmdx get abc123              # Leading # is optional
 
 # Docids also work in multi-get comma-separated lists
-qmd multi-get "#abc123, #def456"
+qmdx multi-get "#abc123, #def456"
 ```
 
 ## Options
@@ -131,14 +132,39 @@ qmd multi-get "#abc123, #def456"
 # Output format (search, query, multi-get)
 --format <kind>          # cli (default) | json | csv | md | xml | files
                          # legacy --json/--csv/--md/--xml/--files still work as aliases
+
+# Multi-project isolation (global flags, run before the command)
+--index-dir <dir>        # Place index.yml + index.sqlite (+-shm/-wal) in <dir>; isolates per-project
+--models-config <path>   # Shared models.yml (embed/rerank/generate) across --index-dir indexes
+                         # default ~/.config/qmdx/models.yml; env: QMDX_INDEX_DIR / QMDX_MODELS_CONFIG
 ```
+
+Multi-project isolation keeps collections/context/search data per-index but shares the
+GGUF model files (`~/.cache/qmdx/models`) and, by default, a single `models.yml`. See
+[docs/PROJECT-ISOLATION.ko.md](docs/PROJECT-ISOLATION.ko.md) for the full guide.
 
 ## Development
 
 ```sh
-bun src/cli/qmd.ts <command>   # Run from source
-bun link               # Install globally as 'qmd'
+bun src/cli/qmdx.ts <command>   # Run from source
+npm install          # Install deps; prepare hook builds dist/ + git hooks
+npm run build        # Rebuild dist/ after editing TypeScript
+npm link             # Install this checkout globally as `qmdx`
 ```
+
+### Install from a git source URL
+
+```sh
+# Global CLI directly from the git repo (main, or pin a branch/tag/commit)
+npm install -g Will-gabia/qmdx
+npm install -g https://github.com/Will-gabia/qmdx.git
+
+# As a project dependency (CLI via `npx qmdx`, or `import { createStore } from 'qmdx'`)
+npm install Will-gabia/qmdx
+```
+
+The `prepare` lifecycle hook auto-builds `dist/` (gitignored) when missing, so a
+git clone/install produces a working CLI without an extra step.`
 
 ## Tests
 
@@ -160,15 +186,15 @@ bun test --preload ./src/test-preload.ts test/
 
 ## Important: Do NOT run automatically
 
-- Never run `qmd collection add`, `qmd embed`, or `qmd update` automatically
+- Never run `qmdx collection add`, `qmdx embed`, or `qmdx update` automatically
 - Never modify the SQLite database directly
 - Write out example commands for the user to run manually
-- Index is stored at `~/.cache/qmd/index.sqlite`
+- Index is stored at `~/.cache/qmdx/index.sqlite`
 
 ## Do NOT compile
 
 - Never run `bun build --compile` - it overwrites the shell wrapper and breaks sqlite-vec
-- The `qmd` file is a shell script that runs compiled JS from `dist/` - do not replace it
+- The `qmdx` file is a Node launcher that runs compiled JS from `dist/` - do not replace it
 - `npm run build` compiles TypeScript to `dist/` via `tsc -p tsconfig.build.json`
 
 ## Releasing

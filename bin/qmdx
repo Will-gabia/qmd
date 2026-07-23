@@ -17,8 +17,8 @@ import { fileURLToPath } from "node:url";
 // the actual package directory instead of the global bin directory.
 const self = realpathSync(fileURLToPath(import.meta.url));
 const pkgDir = resolve(dirname(self), "..");
-const jsEntry = resolve(pkgDir, "dist/cli/qmd.js");
-const tsEntry = resolve(pkgDir, "src/cli/qmd.ts");
+const jsEntry = resolve(pkgDir, "dist/cli/qmdx.js");
+const tsEntry = resolve(pkgDir, "src/cli/qmdx.ts");
 
 // MCP stdio reserves stdout exclusively for JSON-RPC frames. node-llama-cpp
 // / llama.cpp / ggml can write native logs directly to stdout before JS-level
@@ -44,10 +44,10 @@ if (process.argv[2] === "mcp") {
 // measured: identical wall time with and without on M3 Pro), so disable them
 // by default on darwin. The env var must be set BEFORE the native llama.cpp
 // binding loads, which is why it lives here in the launcher rather than in
-// the JS entry point. Opt back in with QMD_METAL_KEEP_RESIDENCY=1 if you
+// the JS entry point. Opt back in with QMDX_METAL_KEEP_RESIDENCY=1 if you
 // run long-lived qmd processes (the MCP daemon may benefit on hot reload)
 // or are triaging an upstream Metal teardown fix.
-if (process.platform === "darwin" && process.env.QMD_METAL_KEEP_RESIDENCY !== "1") {
+if (process.platform === "darwin" && process.env.QMDX_METAL_KEEP_RESIDENCY !== "1") {
   process.env.GGML_METAL_NO_RESIDENCY = process.env.GGML_METAL_NO_RESIDENCY || "1";
 }
 
@@ -68,14 +68,14 @@ function hasBun() {
 // Critical: source-mode detection must NOT trigger when a package manager
 // installed us. `pnpm install -g .` (and `npm install -g .`) copy the entire
 // working tree — including .git/, bun.lock, package-lock.json, src/, and even
-// node_modules/ — into <prefix>/node_modules/@tobilu/qmd/, so .git and a
+// node_modules/ — into <prefix>/node_modules/qmdx/, so .git and a
 // lockfile being present is not a reliable "this is a working tree" signal.
 // What IS reliable: a package-manager install always lands the package
 // directory inside a `node_modules/` segment; a bare working-tree checkout
 // (with `bun link` or a direct path invocation) does not. Gate source mode
-// on that. Allow QMD_SOURCE_MODE=1 / =0 as an explicit override for the
+// on that. Allow QMDX_SOURCE_MODE=1 / =0 as an explicit override for the
 // rare case where the heuristic disagrees with the user.
-const sourceOverride = process.env.QMD_SOURCE_MODE;
+const sourceOverride = process.env.QMDX_SOURCE_MODE;
 const looksInstalled = pkgDir.split("/").includes("node_modules");
 const sourceAllowed = sourceOverride === "1"
   || (sourceOverride !== "0" && !looksInstalled);
@@ -114,10 +114,10 @@ if (sourceAllowed && existsSync(resolve(pkgDir, ".git")) && existsSync(tsEntry))
 }
 
 if (!useSourceMode && !existsSync(jsEntry)) {
-  console.error(`qmd is not built: missing ${jsEntry}`);
+  console.error(`qmdx is not built: missing ${jsEntry}`);
   console.error("Run: bun install && bun run build");
   console.error("Or:  npm install && npm run build");
-  console.error("After building, run: qmd doctor");
+  console.error("After building, run: qmdx doctor");
   process.exit(1);
 }
 
@@ -133,7 +133,7 @@ if (!useSourceMode && !existsSync(jsEntry)) {
 // Package-manager installs keep their lockfile at the install root, above
 // node_modules/ — never inside the package directory itself. A bun global
 // install writes $BUN_INSTALL/install/global/bun.lock while the package
-// lands in .../install/global/node_modules/@tobilu/qmd/, so the package-dir
+// lands in .../install/global/node_modules/qmdx/, so the package-dir
 // checks below can't match and qmd would run under whatever node is first
 // on PATH. The native modules were built by the installing runtime; after
 // the next Node major upgrade they fail to load (ERR_DLOPEN_FAILED,
@@ -178,6 +178,6 @@ child.on("exit", (code, signal) => {
 
 child.on("error", (err) => {
   const name = useSourceMode ? sourceRunner : runnerName;
-  console.error(`qmd: failed to launch ${name}: ${err.message}`);
+  console.error(`qmdx: failed to launch ${name}: ${err.message}`);
   process.exit(1);
 });

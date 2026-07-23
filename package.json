@@ -1,5 +1,5 @@
 {
-  "name": "@tobilu/qmd",
+  "name": "qmdx",
   "version": "2.6.3",
   "description": "Query Markup Documents - On-device hybrid search for markdown files with BM25, vector search, and LLM reranking",
   "type": "module",
@@ -12,13 +12,15 @@
     }
   },
   "bin": {
-    "qmd": "bin/qmd"
+    "qmdx": "bin/qmdx"
   },
   "files": [
     "bin/",
     "dist/",
     "skills/",
     "scripts/build.mjs",
+    "scripts/build-if-missing.mjs",
+    "scripts/prepare.mjs",
     "scripts/check-package-grammars.mjs",
     "scripts/package-smoke.mjs",
     "scripts/test-all.mjs",
@@ -26,7 +28,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "prepare": "[ -d .git ] && ./scripts/install-hooks.sh || true",
+    "prepare": "node scripts/prepare.mjs",
     "build": "node scripts/build.mjs",
     "test": "node scripts/test-all.mjs",
     "test:types": "node ./node_modules/typescript/bin/tsc -p tsconfig.build.json --noEmit",
@@ -34,13 +36,13 @@
     "test:bun": "bun test --timeout 60000 --preload ./src/test-preload.ts",
     "test:unit": "CI=true node ./node_modules/vitest/vitest.mjs run --reporter=verbose --testTimeout 60000 test/ && CI=true bun test --timeout 60000 --preload ./src/test-preload.ts test/",
     "test:package": "node scripts/package-smoke.mjs",
-    "qmd": "tsx src/cli/qmd.ts",
-    "index": "tsx src/cli/qmd.ts index",
-    "vector": "tsx src/cli/qmd.ts vector",
-    "search": "tsx src/cli/qmd.ts search",
-    "vsearch": "tsx src/cli/qmd.ts vsearch",
-    "rerank": "tsx src/cli/qmd.ts rerank",
-    "inspector": "npx @modelcontextprotocol/inspector tsx src/cli/qmd.ts mcp",
+    "qmdx": "tsx src/cli/qmdx.ts",
+    "index": "tsx src/cli/qmdx.ts index",
+    "vector": "tsx src/cli/qmdx.ts vector",
+    "search": "tsx src/cli/qmdx.ts search",
+    "vsearch": "tsx src/cli/qmdx.ts vsearch",
+    "rerank": "tsx src/cli/qmdx.ts rerank",
+    "inspector": "npx @modelcontextprotocol/inspector tsx src/cli/qmdx.ts mcp",
     "release": "./scripts/release.sh",
     "smoke:package-grammars": "node scripts/check-package-grammars.mjs"
   },
@@ -49,11 +51,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tobi/qmd.git"
+    "url": "git+https://github.com/Will-gabia/qmdx.git"
   },
-  "homepage": "https://github.com/tobi/qmd#readme",
+  "homepage": "https://github.com/Will-gabia/qmdx#readme",
   "bugs": {
-    "url": "https://github.com/tobi/qmd/issues"
+    "url": "https://github.com/Will-gabia/qmdx/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

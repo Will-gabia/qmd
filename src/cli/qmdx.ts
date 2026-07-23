@@ -1,4 +1,5 @@
 import { isBun, openDatabase } from "../db.js";
+import { appCacheDir } from "../paths.js";
 import type { Database, SQLiteValue } from "../db.js";
 import fastGlob from "fast-glob";
 import { execSync, spawn as nodeSpawn } from "child_process";
@@ -102,6 +103,10 @@ import {
   loadConfig,
   saveConfig,
   setConfigSource,
+  enableSharedModelsConfig,
+  isSharedModelsConfigEnabled,
+  loadSharedModelsConfig,
+  saveSharedModelsConfig,
   findLocalConfigPath,
   getLocalDbPath,
   getConfigPath,
@@ -115,7 +120,7 @@ import {
 // test/cli.test.ts) must not flip the global production flag, as that leaks
 // into unrelated tests that rely on the default (development) database path
 // resolution. The flag is flipped inside the CLI's main-module guard below so
-// it only fires when qmd is actually invoked as a script.
+// it only fires when qmdx is actually invoked as a script.
 
 // =============================================================================
 // Store/DB lifecycle (no legacy singletons in store.ts)
@@ -124,6 +129,10 @@ import {
 let store: ReturnType<typeof createStore> | null = null;
 let storeDbPathOverride: string | undefined;
 let currentIndexName = "index";
+// When set via --index-dir / QMDX_INDEX_DIR, points at a project-specific
+// folder holding index.yml + index.sqlite (+ -shm/-wal). MCP daemon PID/log
+// files and `qmdx status` prefer this directory over the global qmdx cache.
+let activeIndexDir: string | undefined;
 
 function getStore(): ReturnType<typeof createStore> {
   if (!store) {
@@ -187,8 +196,31 @@ function setIndexName(name: string | null): void {
   }
   currentIndexName = normalizedName || "index";
   storeDbPathOverride = normalizedName ? getDefaultDbPath(normalizedName) : undefined;
+  activeIndexDir = undefined; // --index uses the shared cache dir, not an isolated dir
   // Reset open handle so next use opens the new index
   closeDb();
+}
+
+/**
+ * Point QMDx at a specific directory holding both index.yml and index.sqlite
+ * (+ the SQLite -shm/-wal sidecars). Lets multiple projects keep fully separate
+ * indexes (config + FTS + vectors) by passing `--index-dir <dir>`, without
+ * relying on XDG_CONFIG_HOME / XDG_CACHE_HOME env vars and without
+ * co-mingling indexes in the shared cache. The on-disk model cache
+ * (~/.cache/qmdx/models) remains shared regardless.
+ *
+ * Returns the resolved directory for callers (MCP daemon PID/log placement,
+ * status display).
+ */
+function setIndexDir(dir: string): string {
+  const absDir = pathResolve(process.cwd(), dir);
+  mkdirSync(absDir, { recursive: true });
+  currentIndexName = basename(absDir) || "index";
+  activeIndexDir = absDir;
+  setConfigSource({ configPath: pathJoin(absDir, "index.yml") });
+  storeDbPathOverride = pathJoin(absDir, "index.sqlite");
+  closeDb();
+  return absDir;
 }
 
 function ensureVecTable(_db: Database, dimensions: number): void {
@@ -250,7 +282,7 @@ async function flushWritable(stream: CliLifecycleWritable): Promise<void> {
  * So: set `process.exitCode = 0` and return. The main module finishes, the
  * event loop drains, `beforeExit` fires, native resources tear down in
  * order, and the process exits cleanly. The `GGML_METAL_NO_RESIDENCY=1` env
- * var that `bin/qmd` exports is a defense-in-depth safety net for paths
+ * var that `bin/qmdx` exports is a defense-in-depth safety net for paths
  * that still call `process.exit()` after loading the native binding
  * (signal handlers, error paths, `bun test`).
  *
@@ -267,7 +299,7 @@ export async function finishSuccessfulCliCommand(options: FinishSuccessfulCliCom
     await (options.cleanup ?? disposeDefaultLlamaCpp)();
   } catch (error) {
     stderr.write(
-      `QMD Warning: cleanup after successful output failed (${error instanceof Error ? error.message : String(error)}); exiting 0 because command output completed.\n`
+      `QMDx Warning: cleanup after successful output failed (${error instanceof Error ? error.message : String(error)}); exiting 0 because command output completed.\n`
     );
   }
   await flushWritable(stderr);
@@ -317,15 +349,15 @@ function checkIndexHealth(db: Database, model: string = resolveEmbedModelForCli(
   if (needsEmbedding > 0) {
     const pct = Math.round((needsEmbedding / totalDocs) * 100);
     if (pct >= 10) {
-      process.stderr.write(`${c.yellow}Warning: ${needsEmbedding} documents (${pct}%) need embeddings. Run 'qmd embed' for better results.${c.reset}\n`);
+      process.stderr.write(`${c.yellow}Warning: ${needsEmbedding} documents (${pct}%) need embeddings. Run 'qmdx embed' for better results.${c.reset}\n`);
     } else {
-      process.stderr.write(`${c.dim}Tip: ${needsEmbedding} documents need embeddings. Run 'qmd embed' to index them.${c.reset}\n`);
+      process.stderr.write(`${c.dim}Tip: ${needsEmbedding} documents need embeddings. Run 'qmdx embed' to index them.${c.reset}\n`);
     }
   }
 
   // Check if most recent document update is older than 2 weeks
   if (daysStale !== null && daysStale >= 14) {
-    process.stderr.write(`${c.dim}Tip: Index last updated ${daysStale} days ago. Run 'qmd update' to refresh.${c.reset}\n`);
+    process.stderr.write(`${c.dim}Tip: Index last updated ${daysStale} days ago. Run 'qmdx update' to refresh.${c.reset}\n`);
   }
 }
 
@@ -397,13 +429,34 @@ function sameDirectory(a: string, b: string): boolean {
   }
 }
 
-function initLocalIndex(): void {
-  const cwd = getPwd();
-  if (sameDirectory(cwd, homedir())) {
-    throw new Error("Refusing to initialize a local index in $HOME. The global index is automatically created; run `qmd collection add <path>` for the global index, or run `qmd init` inside a project folder.");
+function initLocalIndex(indexDir?: string): void {
+  // `qmdx init --index-dir <dir>`: scaffold config + sqlite inside <dir> as an
+  // isolated project index. Models are NOT written into the per-index
+  // index.yml — they live in the shared models.yml so every isolated index
+  // shares one embed/rerank/generate configuration (the GGUF files are already
+  // shared). The shared model cache is otherwise unaffected.
+  if (indexDir) {
+    const absDir = setIndexDir(indexDir);
+    if (!isSharedModelsConfigEnabled()) enableSharedModelsConfig();
+    const configPath = getConfigPath();
+    if (!existsSync(configPath)) {
+      saveConfig({ collections: {} });
+    }
+    // Ensure the shared models.yml exists (seed from env/defaults).
+    ensureModelsConfiguredForCli();
+    const localStore = createStore(storeDbPathOverride!);
+    syncConfigToDb(localStore.db, loadConfig());
+    localStore.close();
+    console.log(`ready to go with new index in ${absDir}`);
+    return;
   }
 
-  const qmdDir = pathJoin(cwd, ".qmd");
+  const cwd = getPwd();
+  if (sameDirectory(cwd, homedir())) {
+    throw new Error("Refusing to initialize a local index in $HOME. The global index is automatically created; run `qmdx collection add <path>` for the global index, run `qmdx init` inside a project folder, or `qmdx init --index-dir <dir>`." );
+  }
+
+  const qmdDir = pathJoin(cwd, ".qmdx");
   const ymlPath = pathJoin(qmdDir, "index.yml");
   const yamlPath = pathJoin(qmdDir, "index.yaml");
   const configPath = existsSync(yamlPath) ? yamlPath : ymlPath;
@@ -412,6 +465,7 @@ function initLocalIndex(): void {
   mkdirSync(qmdDir, { recursive: true });
   setConfigSource({ configPath });
   storeDbPathOverride = dbPath;
+  activeIndexDir = undefined;
   closeDb();
 
   if (!existsSync(configPath)) {
@@ -431,14 +485,14 @@ function initLocalIndex(): void {
 }
 
 function isForceCpuEnabled(): boolean {
-  const value = process.env.QMD_FORCE_CPU;
+  const value = process.env.QMDX_FORCE_CPU;
   return !!value && !["false", "off", "none", "disable", "disabled", "0"].includes(value.trim().toLowerCase());
 }
 
 function configuredGpuModeLabel(): string {
   return isForceCpuEnabled()
-    ? "CPU forced (QMD_FORCE_CPU)"
-    : (process.env.QMD_LLAMA_GPU?.trim() || "auto");
+    ? "CPU forced (QMDX_FORCE_CPU)"
+    : (process.env.QMDX_LLAMA_GPU?.trim() || "auto");
 }
 
 function summarizeDeviceNames(names: string[]): string {
@@ -489,14 +543,14 @@ async function showStatus(): Promise<void> {
   // Most recent update across all collections
   const mostRecent = db.prepare(`SELECT MAX(modified_at) as latest FROM documents WHERE active = 1`).get() as { latest: string | null };
 
-  console.log(`${c.bold}QMD Status${c.reset}\n`);
+  console.log(`${c.bold}QMDx Status${c.reset}\n`);
   console.log(`Index: ${dbPath}`);
   console.log(`Size:  ${formatBytes(indexSize)}`);
 
   // MCP daemon status (check PID file liveness)
-  const mcpCacheDir = process.env.XDG_CACHE_HOME
-    ? resolve(process.env.XDG_CACHE_HOME, "qmd")
-    : resolve(homedir(), ".cache", "qmd");
+  // When --index-dir is active, the daemon keeps its PID/log next to its
+  // index.sqlite; otherwise in the global qmdx cache.
+  const mcpCacheDir = activeIndexDir ?? appCacheDir();
   const mcpPidPath = resolve(mcpCacheDir, "mcp.pid");
   if (existsSync(mcpPidPath)) {
     const mcpPid = parseInt(readFileSync(mcpPidPath, "utf-8").trim());
@@ -514,7 +568,7 @@ async function showStatus(): Promise<void> {
   console.log(`  Total:    ${totalDocs.count} files indexed`);
   console.log(`  Vectors:  ${vectorCount.count} embedded`);
   if (needsEmbedding > 0) {
-    console.log(`  ${c.yellow}Pending:  ${needsEmbedding} need embedding${c.reset} (run 'qmd embed')`);
+    console.log(`  ${c.yellow}Pending:  ${needsEmbedding} need embedding${c.reset} (run 'qmdx embed')`);
   }
   if (mostRecent.latest) {
     const lastUpdate = new Date(mostRecent.latest);
@@ -589,18 +643,18 @@ async function showStatus(): Promise<void> {
     console.log(`\n${c.bold}Examples${c.reset}`);
     console.log(`  ${c.dim}# List files in a collection${c.reset}`);
     if (collections.length > 0 && collections[0]) {
-      console.log(`  qmd ls ${collections[0].name}`);
+      console.log(`  qmdx ls ${collections[0].name}`);
     }
     console.log(`  ${c.dim}# Get a document${c.reset}`);
     if (collections.length > 0 && collections[0]) {
-      console.log(`  qmd get qmd://${collections[0].name}/path/to/file.md`);
+      console.log(`  qmdx get qmd://${collections[0].name}/path/to/file.md`);
     }
     console.log(`  ${c.dim}# Search within a collection${c.reset}`);
     if (collections.length > 0 && collections[0]) {
-      console.log(`  qmd search "query" -c ${collections[0].name}`);
+      console.log(`  qmdx search "query" -c ${collections[0].name}`);
     }
   } else {
-    console.log(`\n${c.dim}No collections. Run 'qmd collection add .' to index markdown files.${c.reset}`);
+    console.log(`\n${c.dim}No collections. Run 'qmdx collection add .' to index markdown files.${c.reset}`);
   }
 
   // Models
@@ -630,8 +684,8 @@ async function showStatus(): Promise<void> {
     const names = collectionsWithoutContext.map(c => c.name).slice(0, 3).join(', ');
     const more = collectionsWithoutContext.length > 3 ? ` +${collectionsWithoutContext.length - 3} more` : '';
     tips.push(`Add context to collections for better search results: ${names}${more}`);
-    tips.push(`  ${c.dim}qmd context add qmd://<name>/ "What this collection contains"${c.reset}`);
-    tips.push(`  ${c.dim}qmd context add qmd://<name>/meeting-notes "Weekly team meeting notes"${c.reset}`);
+    tips.push(`  ${c.dim}qmdx context add qmd://<name>/ "What this collection contains"${c.reset}`);
+    tips.push(`  ${c.dim}qmdx context add qmd://<name>/meeting-notes "Weekly team meeting notes"${c.reset}`);
   }
 
   // Check for collections without update commands
@@ -643,7 +697,7 @@ async function showStatus(): Promise<void> {
     const names = collectionsWithoutUpdate.map(c => c.name).slice(0, 3).join(', ');
     const more = collectionsWithoutUpdate.length > 3 ? ` +${collectionsWithoutUpdate.length - 3} more` : '';
     tips.push(`Add update commands to keep collections fresh: ${names}${more}`);
-    tips.push(`  ${c.dim}qmd collection update-cmd <name> 'git stash && git pull --rebase --ff-only && git stash pop'${c.reset}`);
+    tips.push(`  ${c.dim}qmdx collection update-cmd <name> 'git stash && git pull --rebase --ff-only && git stash pop'${c.reset}`);
   }
 
   if (tips.length > 0) {
@@ -667,7 +721,7 @@ async function updateCollections(): Promise<void> {
   const collections = listCollections(db);
 
   if (collections.length === 0) {
-    console.log(`${c.dim}No collections found. Run 'qmd collection add .' to index markdown files.${c.reset}`);
+    console.log(`${c.dim}No collections found. Run 'qmdx collection add .' to index markdown files.${c.reset}`);
     closeDb();
     return;
   }
@@ -745,7 +799,7 @@ async function updateCollections(): Promise<void> {
 
   console.log(`${c.green}✓ All collections updated.${c.reset}`);
   if (needsEmbedding > 0) {
-    console.log(`\nRun 'qmd embed' to update embeddings (${needsEmbedding} unique hashes need vectors)`);
+    console.log(`\nRun 'qmdx embed' to update embeddings (${needsEmbedding} unique hashes need vectors)`);
   }
 }
 
@@ -838,7 +892,7 @@ async function contextAdd(pathArg: string | undefined, contextText: string): Pro
   const detected = detectCollectionFromPath(db, fsPath);
   if (!detected) {
     console.error(`${c.yellow}Path is not in any indexed collection: ${fsPath}${c.reset}`);
-    console.error(`${c.dim}Run 'qmd status' to see indexed collections${c.reset}`);
+    console.error(`${c.dim}Run 'qmdx status' to see indexed collections${c.reset}`);
     process.exit(1);
   }
 
@@ -857,7 +911,7 @@ function contextList(): void {
   const allContexts = listAllContexts();
 
   if (allContexts.length === 0) {
-    console.log(`${c.dim}No contexts configured. Use 'qmd context add' to add one.${c.reset}`);
+    console.log(`${c.dim}No contexts configured. Use 'qmdx context add' to add one.${c.reset}`);
     closeDb();
     return;
   }
@@ -1201,7 +1255,7 @@ function multiGet(pattern: string, maxLines?: number, maxBytes: number = DEFAULT
         body: "",
         context,
         skipped: true,
-        skipReason: `File too large (${Math.round(file.bodyLength / 1024)}KB > ${Math.round(maxBytes / 1024)}KB). Use 'qmd get ${file.displayPath}' to retrieve.`,
+        skipReason: `File too large (${Math.round(file.bodyLength / 1024)}KB > ${Math.round(maxBytes / 1024)}KB). Use 'qmdx get ${file.displayPath}' to retrieve.`,
       });
       continue;
     }
@@ -1353,7 +1407,7 @@ function listFiles(pathArg?: string): void {
     const yamlCollections = yamlListCollections();
 
     if (yamlCollections.length === 0) {
-      console.log("No collections found. Run 'qmd collection add .' to index files.");
+      console.log("No collections found. Run 'qmdx collection add .' to index files.");
       closeDb();
       return;
     }
@@ -1446,7 +1500,7 @@ function listFiles(pathArg?: string): void {
   const coll = getCollectionFromYaml(collectionName);
   if (!coll) {
     console.error(`Collection not found: ${collectionName}`);
-    console.error(`Run 'qmd ls' to see available collections.`);
+    console.error(`Run 'qmdx ls' to see available collections.`);
     closeDb();
     process.exit(1);
   }
@@ -1531,7 +1585,7 @@ function collectionList(): void {
   const collections = listCollections(db);
 
   if (collections.length === 0) {
-    console.log("No collections found. Run 'qmd collection add .' to create one.");
+    console.log("No collections found. Run 'qmdx collection add .' to create one.");
     closeDb();
     return;
   }
@@ -1584,7 +1638,7 @@ async function collectionAdd(pwd: string, globPattern: string, name?: string): P
     console.error(`${c.yellow}A collection already exists for this path and pattern:${c.reset}`);
     console.error(`  Name: ${existingPwdGlob.name} (qmd://${existingPwdGlob.name}/)`);
     console.error(`  Pattern: ${globPattern}`);
-    console.error(`\nUse 'qmd update' to re-index it, or remove it first with 'qmd collection remove ${existingPwdGlob.name}'`);
+    console.error(`\nUse 'qmdx update' to re-index it, or remove it first with 'qmdx collection remove ${existingPwdGlob.name}'`);
     process.exit(1);
   }
 
@@ -1605,7 +1659,7 @@ function collectionRemove(name: string): void {
   const coll = getCollectionFromYaml(name);
   if (!coll) {
     console.error(`${c.yellow}Collection not found: ${name}${c.reset}`);
-    console.error(`Run 'qmd collection list' to see available collections.`);
+    console.error(`Run 'qmdx collection list' to see available collections.`);
     process.exit(1);
   }
 
@@ -1627,7 +1681,7 @@ function collectionRename(oldName: string, newName: string): void {
   const coll = getCollectionFromYaml(oldName);
   if (!coll) {
     console.error(`${c.yellow}Collection not found: ${oldName}${c.reset}`);
-    console.error(`Run 'qmd collection list' to see available collections.`);
+    console.error(`Run 'qmdx collection list' to see available collections.`);
     process.exit(1);
   }
 
@@ -1660,7 +1714,7 @@ async function indexFiles(pwd?: string, globPattern: string = DEFAULT_GLOB, coll
 
   // Collection name must be provided (from YAML)
   if (!collectionName) {
-    throw new Error("Collection name is required. Collections must be defined in ~/.config/qmd/index.yml");
+    throw new Error("Collection name is required. Collections must be defined in ~/.config/qmdx/index.yml");
   }
 
   console.log(`Collection: ${resolvedPwd} (${globPattern})`);
@@ -1782,7 +1836,7 @@ async function indexFiles(pwd?: string, globPattern: string = DEFAULT_GLOB, coll
   }
 
   if (needsEmbedding > 0 && !suppressEmbedNotice) {
-    console.log(`\nRun 'qmd embed' to update embeddings (${needsEmbedding} unique hashes need vectors)`);
+    console.log(`\nRun 'qmdx embed' to update embeddings (${needsEmbedding} unique hashes need vectors)`);
   }
 
   closeDb();
@@ -1811,7 +1865,7 @@ function parseChunkStrategy(value: unknown): ChunkStrategy | undefined {
   throw new Error(`--chunk-strategy must be "auto" or "regex" (got "${s}")`);
 }
 
-// --timeout for `qmd embed`: a cap on the whole embed session, in minutes. Returns
+// --timeout for `qmdx embed`: a cap on the whole embed session, in minutes. Returns
 // the value in milliseconds, or undefined to use the default. 0 disables the cap.
 function parseEmbedTimeoutOption(value: unknown): number | undefined {
   if (value === undefined) return undefined;
@@ -1824,6 +1878,39 @@ function parseEmbedTimeoutOption(value: unknown): number | undefined {
 
 function ensureModelsConfiguredForCli(): { embed: string; generate: string; rerank: string } {
   try {
+    if (isSharedModelsConfigEnabled()) {
+      const shared = loadSharedModelsConfig() ?? {};
+      // One-time, non-destructive migration: if the shared models.yml is empty
+      // but the active index.yml already carries a `models:` block, seed the
+      // shared file from it so existing setups keep their configured models.
+      let seededFromIndex = false;
+      if (!shared.embed && !shared.generate && !shared.rerank) {
+        try {
+          const idxCfg = loadConfig();
+          if (idxCfg.models && (idxCfg.models.embed || idxCfg.models.generate || idxCfg.models.rerank)) {
+            shared.embed = idxCfg.models.embed;
+            shared.generate = idxCfg.models.generate;
+            if (idxCfg.models.rerank !== undefined) shared.rerank = idxCfg.models.rerank;
+            seededFromIndex = true;
+          }
+        } catch { /* no active index config — fine */ }
+      }
+      const models = resolveModels(shared);
+      // Persist back to the shared file whenever anything was inferred
+      // (env/defaults) or migrated, so the shared file becomes the single
+      // source of truth.
+      if (
+        seededFromIndex ||
+        shared.embed !== models.embed ||
+        shared.generate !== models.generate ||
+        shared.rerank !== models.rerank
+      ) {
+        saveSharedModelsConfig(models);
+      }
+      return models;
+    }
+
+    // Legacy: keep models inside index.yml (existing behavior, unchanged)
     const config = loadConfig();
     const models = resolveModels(config.models);
     const current = config.models ?? {};
@@ -2093,7 +2180,7 @@ function encodePathForEditorUri(absolutePath: string): string {
 }
 
 function getEditorUriTemplate(): string {
-  const envTemplate = process.env.QMD_EDITOR_URI?.trim();
+  const envTemplate = process.env.QMDX_EDITOR_URI?.trim();
   if (envTemplate) return envTemplate;
 
   try {
@@ -2222,7 +2309,7 @@ function outputResults(results: OutputRow[], query: string, opts: OutputOptions)
       // Line 1: filepath with docid
       // Default: show the full qmd:// URI so the user can see which collection
       // a hit lives in and can pipe the same string straight back into
-      // `qmd get`. A bare collection-relative path like `sources/foo.md` is
+      // `qmdx get`. A bare collection-relative path like `sources/foo.md` is
       // ambiguous: it's not a real filesystem path, not a URI, and not a
       // shell-friendly identifier on its own.
       // With --full-path the visible label is the file's on-disk path
@@ -2719,6 +2806,12 @@ function parseCLI() {
       index: {
         type: "string",
       },
+      "index-dir": {
+        type: "string",
+      },
+      "models-config": {
+        type: "string",
+      },
       context: {
         type: "string",
       },
@@ -2778,17 +2871,25 @@ function parseCLI() {
   });
 
   if (values["no-gpu"]) {
-    process.env.QMD_FORCE_CPU = "1";
+    process.env.QMDX_FORCE_CPU = "1";
   }
 
-  // Select index name (default: "index"). If no explicit --index is supplied,
-  // a project-local .qmd/index.yaml overrides the global config/cache paths.
+  // Select index location. Precedence (highest first):
+  //   1. --index-dir <dir> / QMDX_INDEX_DIR — isolates config.yml + index.sqlite
+  //      (and -shm/-wal) inside <dir>, keeping the shared model cache.
+  //   2. --index <name> — flat <name>.sqlite next to the global cache dir.
+  //   3. project-local .qmdx/index.yaml found by walking up from cwd.
+  //   4. global default (~/.config/qmdx + ~/.cache/qmdx).
+  const indexDir = (values["index-dir"] as string | undefined) ?? (process.env.QMDX_INDEX_DIR || undefined);
   const indexName = values.index as string | undefined;
-  if (indexName) {
+  if (indexDir) {
+    setIndexDir(indexDir);
+  } else if (indexName) {
     setIndexName(indexName);
     setConfigIndexName(indexName);
     setConfigSource();
   } else {
+    activeIndexDir = undefined;
     const localConfigPath = findLocalConfigPath();
     if (localConfigPath) {
       setConfigSource({ configPath: localConfigPath });
@@ -2851,14 +2952,14 @@ function parseCLI() {
 
 function getSkillInstallDir(globalInstall: boolean): string {
   return globalInstall
-    ? resolve(homedir(), ".agents", "skills", "qmd")
-    : resolve(getPwd(), ".agents", "skills", "qmd");
+    ? resolve(homedir(), ".agents", "skills", "qmdx")
+    : resolve(getPwd(), ".agents", "skills", "qmdx");
 }
 
 function getClaudeSkillLinkPath(globalInstall: boolean): string {
   return globalInstall
-    ? resolve(homedir(), ".claude", "skills", "qmd")
-    : resolve(getPwd(), ".claude", "skills", "qmd");
+    ? resolve(homedir(), ".claude", "skills", "qmdx")
+    : resolve(getPwd(), ".claude", "skills", "qmdx");
 }
 
 function pathExists(path: string): boolean {
@@ -2889,7 +2990,7 @@ type SkillInfo = {
 const SKILL_DIR = "skills";
 
 function findPackageRoot(): string | null {
-  if (process.env.QMD_SKILLS_DIR) {
+  if (process.env.QMDX_SKILLS_DIR) {
     return null;
   }
 
@@ -2907,8 +3008,8 @@ function findPackageRoot(): string | null {
 }
 
 function getSkillSearchDirs(_runtimeOnly = false): string[] {
-  if (process.env.QMD_SKILLS_DIR) {
-    return [process.env.QMD_SKILLS_DIR];
+  if (process.env.QMDX_SKILLS_DIR) {
+    return [process.env.QMDX_SKILLS_DIR];
   }
 
   const root = findPackageRoot();
@@ -3006,11 +3107,11 @@ function collectSkillFiles(skill: SkillInfo): { relativePath: string; content: s
 }
 
 function showSkill(): void {
-  const skill = findSkill("qmd");
+  const skill = findSkill("qmdx");
   if (!skill) {
-    throw new Error("QMD skill not found. Reinstall qmd or set QMD_SKILLS_DIR.");
+    throw new Error("QMDx skill not found. Reinstall qmdx or set QMDX_SKILLS_DIR.");
   }
-  console.log("QMD Skill");
+  console.log("QMDx Skill");
   console.log("");
   const content = readSkillContent(skill);
   process.stdout.write(content.endsWith("\n") ? content : content + "\n");
@@ -3032,30 +3133,30 @@ function copyDirectoryContents(sourceDir: string, targetDir: string): void {
 
 function installedSkillStubContent(): string {
   return `---
-name: qmd
-description: Bootstrap QMD search instructions from the installed qmd CLI. Use when users ask to find notes, retrieve documents, inspect a wiki, or answer from indexed local markdown.
+name: qmdx
+description: Bootstrap QMDx search instructions from the installed qmdx CLI. Use when users ask to find notes, retrieve documents, inspect a wiki, or answer from indexed local markdown.
 license: MIT
-compatibility: Requires qmd CLI. Run \`qmd skill show\` for version-matched instructions.
-allowed-tools: Bash(qmd:*), mcp__qmd__*
+compatibility: Requires qmdx CLI. Run \`qmdx skill show\` for version-matched instructions.
+allowed-tools: Bash(qmdx:*), mcp__qmd__*
 ---
 
-# QMD - Query Markdown Documents
+# QMDx - Query Markdown Documents
 
 This installed skill is intentionally a small bootstrap so it does not go stale
-when the qmd package updates.
+when the qmdx package updates.
 
-Load the full, version-matched QMD instructions from the CLI:
+Load the full, version-matched QMDx instructions from the CLI:
 
-!\`qmd skill show\`
+!\`qmdx skill show\`
 
 If your agent does not support bang-command expansion, run:
 
 \`\`\`bash
-qmd skill show
+qmdx skill show
 \`\`\`
 
 Then follow those instructions. In short: search first, fetch full sources with
-\`qmd get\` or \`qmd multi-get\`, and answer from retrieved text rather than snippets.
+\`qmdx get\` or \`qmdx multi-get\`, and answer from retrieved text rather than snippets.
 `;
 }
 
@@ -3067,9 +3168,9 @@ function writeSkillInstall(targetDir: string, force: boolean): void {
     removePath(targetDir);
   }
 
-  const skill = findSkill("qmd");
+  const skill = findSkill("qmdx");
   if (!skill) {
-    throw new Error("QMD skill not found. Reinstall qmd or set QMD_SKILLS_DIR.");
+    throw new Error("QMDx skill not found. Reinstall qmdx or set QMDX_SKILLS_DIR.");
   }
 
   copyDirectoryContents(skill.dir, targetDir);
@@ -3115,7 +3216,7 @@ function runSkillsCommand(args: string[], jsonMode: boolean, fullOption = false,
       });
 
       if (targets.length === 0) {
-        throw new Error("No skill name provided. Usage: qmd skills get <name>");
+        throw new Error("No skill name provided. Usage: qmdx skills get <name>");
       }
 
       if (jsonMode) {
@@ -3172,7 +3273,7 @@ function runSkillsCommand(args: string[], jsonMode: boolean, fullOption = false,
 }
 
 function showSkillsHelp(): void {
-  console.log("Usage: qmd skills <list|get|path> [options]");
+  console.log("Usage: qmdx skills <list|get|path> [options]");
   console.log("");
   console.log("Commands:");
   console.log("  list                 List bundled runtime skills");
@@ -3192,7 +3293,7 @@ function ensureClaudeSymlink(linkPath: string, targetDir: string, force: boolean
     const resolvedLinkParent = realpathSync(parentDir);
 
     // If .claude/skills already resolves to the same directory as .agents/skills,
-    // the skill is already visible to Claude and creating qmd -> qmd would loop.
+    // the skill is already visible to Claude and creating qmdx -> qmdx would loop.
     if (resolvedTargetDir === resolvedLinkParent) {
       return false;
     }
@@ -3243,7 +3344,7 @@ async function shouldCreateClaudeSymlink(linkPath: string, autoYes: boolean): Pr
 async function installSkill(globalInstall: boolean, force: boolean, autoYes: boolean): Promise<void> {
   const installDir = getSkillInstallDir(globalInstall);
   writeSkillInstall(installDir, force);
-  console.log(`✓ Installed QMD skill to ${installDir}`);
+  console.log(`✓ Installed QMDx skill to ${installDir}`);
 
   const claudeLinkPath = getClaudeSkillLinkPath(globalInstall);
   if (!(await shouldCreateClaudeSymlink(claudeLinkPath, autoYes))) {
@@ -3259,40 +3360,40 @@ async function installSkill(globalInstall: boolean, force: boolean, autoYes: boo
 }
 
 function showHelp(): void {
-  console.log("qmd — Quick Markdown Search");
+  console.log("qmdx — Quick Markdown Search");
   console.log("");
   console.log("Usage:");
-  console.log("  qmd <command> [options]");
+  console.log("  qmdx <command> [options]");
   console.log("");
   console.log("Primary commands:");
-  console.log("  qmd query <query>             - Hybrid search with auto expansion + reranking (recommended)");
-  console.log("  qmd query 'lex:..\\nvec:...'   - Structured query document (you provide lex/vec/hyde lines)");
-  console.log("  qmd search <query>            - Full-text BM25 keywords (no LLM)");
-  console.log("  qmd vsearch <query>           - Vector similarity only");
-  console.log("  qmd get <file>[:from[:count]] - Show a document (line-numbered; #docid in header)");
-  console.log("  qmd multi-get <pattern>       - Batch fetch via glob or comma-separated list");
-  console.log("  qmd skills list/get/path      - List and retrieve bundled runtime skills");
-  console.log("  qmd skill show/install        - Show or install the QMD skill");
-  console.log("  qmd mcp                       - Start the MCP server (stdio transport for AI agents)");
-  console.log("  qmd bench <fixture.json>      - Run search quality benchmarks against a fixture file");
+  console.log("  qmdx query <query>             - Hybrid search with auto expansion + reranking (recommended)");
+  console.log("  qmdx query 'lex:..\\nvec:...'   - Structured query document (you provide lex/vec/hyde lines)");
+  console.log("  qmdx search <query>            - Full-text BM25 keywords (no LLM)");
+  console.log("  qmdx vsearch <query>           - Vector similarity only");
+  console.log("  qmdx get <file>[:from[:count]] - Show a document (line-numbered; #docid in header)");
+  console.log("  qmdx multi-get <pattern>       - Batch fetch via glob or comma-separated list");
+  console.log("  qmdx skills list/get/path      - List and retrieve bundled runtime skills");
+  console.log("  qmdx skill show/install        - Show or install the QMDx skill");
+  console.log("  qmdx mcp                       - Start the MCP server (stdio transport for AI agents)");
+  console.log("  qmdx bench <fixture.json>      - Run search quality benchmarks against a fixture file");
   console.log("");
   console.log("Collections & context:");
-  console.log("  qmd collection add/list/remove/rename/show   - Manage indexed folders");
-  console.log("  qmd context add/list/rm                      - Attach human-written summaries");
-  console.log("  qmd ls [collection[/path]]                   - Inspect indexed files");
+  console.log("  qmdx collection add/list/remove/rename/show   - Manage indexed folders");
+  console.log("  qmdx context add/list/rm                      - Attach human-written summaries");
+  console.log("  qmdx ls [collection[/path]]                   - Inspect indexed files");
   console.log("");
   console.log("Maintenance:");
-  console.log("  qmd init                      - Create a project-local .qmd index");
-  console.log("  qmd status                    - View index + collection health");
-  console.log("  qmd update [--pull]           - Re-index collections (optionally git pull first)");
-  console.log("  qmd embed [-f] [-c <name>]    - Generate/refresh vector embeddings");
+  console.log("  qmdx init                      - Create a project-local .qmdx index");
+  console.log("  qmdx status                    - View index + collection health");
+  console.log("  qmdx update [--pull]           - Re-index collections (optionally git pull first)");
+  console.log("  qmdx embed [-f] [-c <name>]    - Generate/refresh vector embeddings");
   console.log("    --max-docs-per-batch <n>    - Cap docs loaded into memory per embedding batch");
   console.log("    --max-batch-mb <n>          - Cap UTF-8 MB loaded into memory per embedding batch");
   console.log("    --timeout <minutes>         - Embed session cap in minutes (0 = no limit; default 30)");
-  console.log("  qmd cleanup                   - Clear caches, vacuum DB");
+  console.log("  qmdx cleanup                   - Clear caches, vacuum DB");
   console.log("");
-  console.log("Query syntax (qmd query):");
-  console.log("  QMD queries are either a single expand query (no prefix) or a multi-line");
+  console.log("Query syntax (qmdx query):");
+  console.log("  QMDx queries are either a single expand query (no prefix) or a multi-line");
   console.log("  document where every line is typed with lex:, vec:, or hyde:. This grammar");
   console.log("  matches the docs in docs/SYNTAX.md and is enforced in the CLI.");
   console.log("");
@@ -3315,10 +3416,10 @@ function showHelp(): void {
   }
   console.log("");
   console.log("  Examples:");
-  console.log("    qmd query \"how does auth work\"                # single-line → implicit expand");
-  console.log("    qmd query $'lex: CAP theorem\\nvec: consistency'  # typed query document");
-  console.log("    qmd query $'lex: \"exact matches\" sports -baseball'  # phrase + negation lex search");
-  console.log("    qmd query $'hyde: Hypothetical answer text'       # hyde-only document");
+  console.log("    qmdx query \"how does auth work\"                # single-line → implicit expand");
+  console.log("    qmdx query $'lex: CAP theorem\\nvec: consistency'  # typed query document");
+  console.log("    qmdx query $'lex: \"exact matches\" sports -baseball'  # phrase + negation lex search");
+  console.log("    qmdx query $'hyde: Hypothetical answer text'       # hyde-only document");
   console.log("");
   console.log("  Constraints:");
   console.log("    - Standalone expand queries cannot mix with typed lines.");
@@ -3326,16 +3427,20 @@ function showHelp(): void {
   console.log("    - Each typed line must be single-line text with balanced quotes.");
   console.log("");
   console.log("AI agents & integrations:");
-  console.log("  - Run `qmd mcp` to expose the MCP server (stdio) to agents/IDEs.");
-  console.log("  - Run `qmd skills get qmd --full` for version-matched agent instructions.");
-  console.log("  - `qmd skill install` installs the QMD skill into ./.agents/skills/qmd.");
-  console.log("  - Use `qmd skill install --global` for ~/.agents/skills/qmd.");
-  console.log("  - `qmd --skill` is kept as an alias for `qmd skill show`.");
-  console.log("  - Advanced: `qmd mcp --http ...` and `qmd mcp --http --daemon` are optional for custom transports.");
+  console.log("  - Run `qmdx mcp` to expose the MCP server (stdio) to agents/IDEs.");
+  console.log("  - Run `qmdx skills get qmdx --full` for version-matched agent instructions.");
+  console.log("  - `qmdx skill install` installs the QMDx skill into ./.agents/skills/qmdx.");
+  console.log("  - Use `qmdx skill install --global` for ~/.agents/skills/qmdx.");
+  console.log("  - `qmdx --skill` is kept as an alias for `qmdx skill show`.");
+  console.log("  - Advanced: `qmdx mcp --http ...` and `qmdx mcp --http --daemon` are optional for custom transports.");
   console.log("");
   console.log("Global options:");
   console.log("  --index <name>             - Use a named index (default: index)");
-  console.log("  QMD_EDITOR_URI             - Editor link template for clickable TTY search output");
+  console.log("  --index-dir <dir>          - Place index.yml + index.sqlite (+-shm/-wal) in <dir>; isolates");
+  console.log("                                indexes per project. Models stay shared. Also QMDX_INDEX_DIR env.");
+  console.log("  --models-config <path>     - Use a shared models.yml (embed/rerank/generate) shared across");
+  console.log("                                --index-dir indexes. Default ~/.config/qmdx/models.yml. Also QMDX_MODELS_CONFIG.");
+  console.log("  QMDX_EDITOR_URI             - Editor link template for clickable TTY search output");
   console.log("");
   console.log("Search options:");
   console.log("  -n <num>                   - Max results (default 5, or 20 for --format files|json)");
@@ -3344,7 +3449,7 @@ function showHelp(): void {
   console.log("  --full                     - Output full document instead of snippet");
   console.log("  -C, --candidate-limit <n>  - Max candidates to rerank (default 40, lower = faster)");
   console.log("  --no-rerank                - Skip LLM reranking (use RRF scores only, much faster on CPU)");
-  console.log("  --no-gpu                   - Force CPU mode for llama.cpp operations (same as QMD_FORCE_CPU=1)");
+  console.log("  --no-gpu                   - Force CPU mode for llama.cpp operations (same as QMDX_FORCE_CPU=1)");
   console.log("  --line-numbers             - Include line numbers (search; get/multi-get are on by default)");
   console.log("  --no-line-numbers          - Disable line numbers for get/multi-get");
   console.log("  --full-path                - Show on-disk paths instead of qmd:// + docid (get/multi-get/search/query)");
@@ -3383,9 +3488,9 @@ function shortModelName(model: string): string {
 
 function normalizedDoctorNextSteps(steps: string[]): string[] {
   const unique = Array.from(new Set(steps));
-  const hasForceEmbed = unique.some(step => step.includes("qmd embed --force"));
+  const hasForceEmbed = unique.some(step => step.includes("qmdx embed --force"));
   if (!hasForceEmbed) return unique;
-  return unique.filter(step => !step.includes("qmd embed") || step.startsWith("Run `qmd embed --force`"));
+  return unique.filter(step => !step.includes("qmdx embed") || step.startsWith("Run `qmdx embed --force`"));
 }
 
 function shortHashSeq(hashSeq: string): string {
@@ -3435,9 +3540,9 @@ function findCachedModelInspection(model: string): CachedModelInspection {
     if (!filename || !existsSync(DEFAULT_MODEL_CACHE_DIR)) return { path: null, invalid };
     const entries = readdirSync(DEFAULT_MODEL_CACHE_DIR, { withFileTypes: true });
     for (const entry of entries) {
-      // Skip the `<filename>.etag` HTTP sidecar that `qmd pull` writes next to
+      // Skip the `<filename>.etag` HTTP sidecar that `qmdx pull` writes next to
       // each blob. It satisfies `includes(filename)` but is not a GGUF, so
-      // inspecting it as one surfaces a spurious "invalid" model in `qmd
+      // inspecting it as one surfaces a spurious "invalid" model in `qmdx
       // doctor` whenever readdir happens to yield the sidecar before the blob.
       if (!entry.isFile() || entry.name.endsWith(".etag") || !entry.name.includes(filename)) continue;
       const candidate = pathJoin(DEFAULT_MODEL_CACHE_DIR, entry.name);
@@ -3478,32 +3583,39 @@ function collectEnvironmentOverrides(activeModels: { embed: string; generate: st
     const configured = configModels[key];
     const consequence = configured && configured !== raw
       ? `set but ignored because index models.${key} is configured as ${configured}`
-      : `sets the active ${key} model to ${active}; changes embedding/search semantics and may require \`qmd pull\` plus \`qmd embed\``;
+      : `sets the active ${key} model to ${active}; changes embedding/search semantics and may require \`qmdx pull\` plus \`qmdx embed\``;
     overrides.push({ name, value: envValueForDisplay(raw), consequence });
   };
 
-  add("INDEX_PATH", "overrides the SQLite index path; QMD reads/writes a different database");
-  add("QMD_CONFIG_DIR", "overrides the QMD config directory and takes precedence over XDG_CONFIG_HOME");
-  add("XDG_CONFIG_HOME", "moves QMD config to $XDG_CONFIG_HOME/qmd when QMD_CONFIG_DIR is not set");
+  add("INDEX_PATH", "overrides the SQLite index path; QMDx reads/writes a different database");
+  add("QMDX_INDEX_DIR", "places index.yml + index.sqlite (and -shm/-wal) inside <dir>; --index-dir is the flag form");
+  add("QMDX_MODELS_CONFIG", "shared models.yml path for embed/rerank/generate; with --index-dir, models live here, not each index.yml");
+  add("QMDX_CONFIG_DIR", "overrides the QMDx config directory and takes precedence over XDG_CONFIG_HOME");
+  add("XDG_CONFIG_HOME", "moves QMDx config to $XDG_CONFIG_HOME/qmdx when QMDX_CONFIG_DIR is not set");
   add("XDG_CACHE_HOME", "moves the default index cache, model cache, and MCP daemon PID files");
-  addModel("QMD_EMBED_MODEL", "embed", activeModels.embed);
-  addModel("QMD_GENERATE_MODEL", "generate", activeModels.generate);
-  addModel("QMD_RERANK_MODEL", "rerank", activeModels.rerank);
-  add("QMD_FORCE_CPU", "forces llama.cpp to bypass GPU backends; embeddings/query will be slower but GPU crashes are avoided");
-  add("QMD_LLAMA_GPU", "selects llama.cpp GPU backend (metal/cuda/vulkan) or disables GPU when set to false/off/0");
-  add("QMD_DOCTOR_DEVICE_PROBE", "controls qmd doctor native device probing; 0/off skips GPU probing");
-  add("QMD_EMBED_PARALLELISM", "overrides embedding parallel context count; too high can exhaust RAM/VRAM");
-  add("QMD_EXPAND_CONTEXT_SIZE", "overrides query expansion context size; larger values use more memory");
-  add("QMD_RERANK_CONTEXT_SIZE", "overrides reranker context size; larger values use more memory");
-  add("QMD_EMBED_CONTEXT_SIZE", "overrides embed context size; larger values use more memory");
-  add("QMD_EDITOR_URI", "overrides clickable editor link template in terminal output");
-  add("QMD_SKILLS_DIR", "overrides where qmd skills are discovered from");
-  add("QMD_METAL_KEEP_RESIDENCY", "opts back into libggml-metal residency sets on darwin; restores ~0ms perf wins for long-lived processes but re-exposes the static-destructor backtrace dump at process exit (ggml-org/llama.cpp#22593)");
-  add("GGML_METAL_NO_RESIDENCY", "set automatically by the launcher on darwin to disable Metal residency sets (avoids ggml-org/llama.cpp#22593); override via QMD_METAL_KEEP_RESIDENCY=1");
+  addModel("QMDX_EMBED_MODEL", "embed", activeModels.embed);
+  addModel("QMDX_GENERATE_MODEL", "generate", activeModels.generate);
+  addModel("QMDX_RERANK_MODEL", "rerank", activeModels.rerank);
+  add("QMDX_RERANK_MODEL=none", "disables reranking entirely; qmdx query returns RRF-only scores without downloading the rerank GGUF or passing --no-rerank (also accepts disabled/off/false/no)");
+  add("QMDX_OPENAI_BASE_URL", "base URL for openai: embed models (e.g. https://host/v1); required when QMDX_EMBED_MODEL uses the openai: scheme");
+  add("QMDX_OPENAI_API_KEY", "API key for the openai: embed provider; required when QMDX_EMBED_MODEL uses the openai: scheme");
+  add("QMDX_OPENAI_EMBED_BATCH_SIZE", "max texts per /embeddings request for the openai: provider (default 64)");
+  add("QMDX_OPENAI_CHAT_MAX_TOKENS", "max_tokens for the openai: chat provider (expandQuery); reasoning models like minimax need a large budget so the answer isn't starved (default 2000)");
+  add("QMDX_FORCE_CPU", "forces llama.cpp to bypass GPU backends; embeddings/query will be slower but GPU crashes are avoided");
+  add("QMDX_LLAMA_GPU", "selects llama.cpp GPU backend (metal/cuda/vulkan) or disables GPU when set to false/off/0");
+  add("QMDX_DOCTOR_DEVICE_PROBE", "controls qmdx doctor native device probing; 0/off skips GPU probing");
+  add("QMDX_EMBED_PARALLELISM", "overrides embedding parallel context count; too high can exhaust RAM/VRAM");
+  add("QMDX_EXPAND_CONTEXT_SIZE", "overrides query expansion context size; larger values use more memory");
+  add("QMDX_RERANK_CONTEXT_SIZE", "overrides reranker context size; larger values use more memory");
+  add("QMDX_EMBED_CONTEXT_SIZE", "overrides embed context size; larger values use more memory");
+  add("QMDX_EDITOR_URI", "overrides clickable editor link template in terminal output");
+  add("QMDX_SKILLS_DIR", "overrides where qmdx skills are discovered from");
+  add("QMDX_METAL_KEEP_RESIDENCY", "opts back into libggml-metal residency sets on darwin; restores ~0ms perf wins for long-lived processes but re-exposes the static-destructor backtrace dump at process exit (ggml-org/llama.cpp#22593)");
+  add("GGML_METAL_NO_RESIDENCY", "set automatically by the launcher on darwin to disable Metal residency sets (avoids ggml-org/llama.cpp#22593); override via QMDX_METAL_KEEP_RESIDENCY=1");
   add("NO_COLOR", "disables colored terminal output");
-  add("CI", "disables real LLM operations inside QMD's LlamaCpp wrapper");
+  add("CI", "disables real LLM operations inside QMDx's LlamaCpp wrapper");
   add("HF_ENDPOINT", "changes Hugging Face download endpoint used when pulling models");
-  add("QMD_WRAPPER_CAPTURE", "test/debug hook for the qmd shell wrapper; should not be set in normal use");
+  add("QMDX_WRAPPER_CAPTURE", "test/debug hook for the qmdx shell wrapper; should not be set in normal use");
   add("WSL_DISTRO_NAME", "enables WSL path handling heuristics");
   add("WSL_INTEROP", "enables WSL path handling heuristics");
   return overrides;
@@ -3519,8 +3631,8 @@ function checkDoctorIndexConfig(nextSteps: string[]): DoctorConfigCheck {
     const config = loadConfig();
     const collectionCount = Object.keys(config.collections ?? {}).length;
     if (collectionCount === 0) {
-      doctorCheck("index config", false, "no collections configured. Next: `qmd collection add .`");
-      nextSteps.push("Run `qmd collection add . --name <name>` from the folder you want to index, or edit .qmd/index.yml manually.");
+      doctorCheck("index config", false, "no collections configured. Next: `qmdx collection add .`");
+      nextSteps.push("Run `qmdx collection add . --name <name>` from the folder you want to index, or edit .qmdx/index.yml manually.");
     } else {
       doctorCheck("index config", true, `${formatCount(collectionCount)} ${collectionCount === 1 ? "collection" : "collections"} configured`);
     }
@@ -3528,8 +3640,8 @@ function checkDoctorIndexConfig(nextSteps: string[]): DoctorConfigCheck {
   } catch (error) {
     const message = error instanceof Error ? sanitizeDiagnosticMessage(error.message) : sanitizeDiagnosticMessage(String(error));
     const configPath = getConfigPath();
-    doctorCheck("index config", false, `invalid index.yml at ${configPath}: ${message}. Next: fix the YAML and rerun \`qmd doctor\``);
-    nextSteps.push(`Fix invalid YAML in ${configPath}, then rerun \`qmd doctor\`.`);
+    doctorCheck("index config", false, `invalid index.yml at ${configPath}: ${message}. Next: fix the YAML and rerun \`qmdx doctor\``);
+    nextSteps.push(`Fix invalid YAML in ${configPath}, then rerun \`qmdx doctor\`.`);
     return { config: null, valid: false };
   }
 }
@@ -3549,9 +3661,9 @@ function checkEnvironmentOverrides(activeModels: { embed: string; generate: stri
 
 function checkModelDefaults(activeModels: { embed: string; generate: string; rerank: string }, configModels: ModelsConfig = {}): void {
   const checks = [
-    { role: "embedding", key: "embed", active: activeModels.embed, configured: configModels.embed, defaultModel: DEFAULT_EMBED_MODEL, envName: "QMD_EMBED_MODEL", envValue: process.env.QMD_EMBED_MODEL },
-    { role: "generation", key: "generate", active: activeModels.generate, configured: configModels.generate, defaultModel: DEFAULT_QUERY_MODEL, envName: "QMD_GENERATE_MODEL", envValue: process.env.QMD_GENERATE_MODEL },
-    { role: "reranking", key: "rerank", active: activeModels.rerank, configured: configModels.rerank, defaultModel: DEFAULT_RERANK_MODEL, envName: "QMD_RERANK_MODEL", envValue: process.env.QMD_RERANK_MODEL },
+    { role: "embedding", key: "embed", active: activeModels.embed, configured: configModels.embed, defaultModel: DEFAULT_EMBED_MODEL, envName: "QMDX_EMBED_MODEL", envValue: process.env.QMDX_EMBED_MODEL },
+    { role: "generation", key: "generate", active: activeModels.generate, configured: configModels.generate, defaultModel: DEFAULT_QUERY_MODEL, envName: "QMDX_GENERATE_MODEL", envValue: process.env.QMDX_GENERATE_MODEL },
+    { role: "reranking", key: "rerank", active: activeModels.rerank, configured: configModels.rerank, defaultModel: DEFAULT_RERANK_MODEL, envName: "QMDX_RERANK_MODEL", envValue: process.env.QMDX_RERANK_MODEL },
   ] as const;
 
   const notes: string[] = [];
@@ -3567,7 +3679,7 @@ function checkModelDefaults(activeModels: { embed: string; generate: string; rer
   }
 
   if (notes.length === 0) {
-    doctorCheck("model defaults", true, "using QMD codebase defaults");
+    doctorCheck("model defaults", true, "using QMDx codebase defaults");
     return;
   }
 
@@ -3608,13 +3720,13 @@ function checkModelCache(activeModels: { embed: string; generate: string; rerank
   if (invalid.length > 0) parts.push(`invalid ${invalid.length}: ${invalid.join("; ")}`);
   if (missing.length > 0) parts.push(`missing ${missing.length}/${unique.size}: ${missing.join("; ")}`);
   const next = invalid.length > 0
-    ? "Next: run `qmd pull --refresh` (or remove the bad cached file)"
-    : "Next: run `qmd pull`";
+    ? "Next: run `qmdx pull --refresh` (or remove the bad cached file)"
+    : "Next: run `qmdx pull`";
   doctorCheck("model cache", false, `${parts.join("; ")}. ${next}`);
   if (invalid.length > 0) {
-    nextSteps.push("Run `qmd pull --refresh` to replace invalid cached model files, or delete the listed file and rerun `qmd pull`.");
+    nextSteps.push("Run `qmdx pull --refresh` to replace invalid cached model files, or delete the listed file and rerun `qmdx pull`.");
   } else {
-    nextSteps.push("Run `qmd pull` to download missing embedding/generation/reranking models before `qmd embed` or `qmd query`.");
+    nextSteps.push("Run `qmdx pull` to download missing embedding/generation/reranking models before `qmdx embed` or `qmdx query`.");
   }
 }
 
@@ -3626,7 +3738,7 @@ async function checkEmbeddingVectorSamples(db: Database, model: string, fingerpr
 
   const vecTableExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='vectors_vec'`).get();
   if (!vecTableExists) {
-    return { ok: false, details: "no vector table to test; please run qmd embed again" };
+    return { ok: false, details: "no vector table to test; please run qmdx embed again" };
   }
 
   const samples = db.prepare(`
@@ -3641,7 +3753,7 @@ async function checkEmbeddingVectorSamples(db: Database, model: string, fingerpr
   `).all(model, fingerprint, sampleSize) as { hash: string; seq: number; body: string; path: string }[];
 
   if (samples.length === 0) {
-    return { ok: false, details: "no current embedded chunks to test; please run qmd embed again" };
+    return { ok: false, details: "no current embedded chunks to test; please run qmdx embed again" };
   }
 
   const threshold = 0.0001;
@@ -3680,7 +3792,7 @@ async function checkEmbeddingVectorSamples(db: Database, model: string, fingerpr
   if (mismatches.length > 0) {
     return {
       ok: false,
-      details: `${mismatches.length}/${samples.length} sampled chunks differ from stored vectors (${mismatches[0]}). Rebuild with \`qmd embed --force\``,
+      details: `${mismatches.length}/${samples.length} sampled chunks differ from stored vectors (${mismatches[0]}). Rebuild with \`qmdx embed --force\``,
     };
   }
 
@@ -3748,14 +3860,14 @@ async function runDoctorDeviceChecks(nextSteps: string[]): Promise<void> {
   const mode = configuredGpuModeLabel();
   doctorCheck("device mode", true, mode);
 
-  const skipProbe = ["0", "false", "off", "no", "skip"].includes((process.env.QMD_DOCTOR_DEVICE_PROBE ?? "").trim().toLowerCase());
+  const skipProbe = ["0", "false", "off", "no", "skip"].includes((process.env.QMDX_DOCTOR_DEVICE_PROBE ?? "").trim().toLowerCase());
   if (skipProbe) {
-    doctorCheck("device probe", false, "skipped by QMD_DOCTOR_DEVICE_PROBE=0. Next: unset it and rerun `qmd doctor` to verify GPU/CPU acceleration");
-    nextSteps.push("Unset `QMD_DOCTOR_DEVICE_PROBE` and rerun `qmd doctor` when you want to verify llama.cpp device acceleration.");
+    doctorCheck("device probe", false, "skipped by QMDX_DOCTOR_DEVICE_PROBE=0. Next: unset it and rerun `qmdx doctor` to verify GPU/CPU acceleration");
+    nextSteps.push("Unset `QMDX_DOCTOR_DEVICE_PROBE` and rerun `qmdx doctor` when you want to verify llama.cpp device acceleration.");
     return;
   }
 
-  const crashHint = "Probing native llama backend now. If qmd crashes here, rerun with `QMD_FORCE_CPU=1 qmd doctor` (or `QMD_DOCTOR_DEVICE_PROBE=0 qmd doctor` to skip this probe).";
+  const crashHint = "Probing native llama backend now. If qmdx crashes here, rerun with `QMDX_FORCE_CPU=1 qmdx doctor` (or `QMDX_DOCTOR_DEVICE_PROBE=0 qmdx doctor` to skip this probe).";
   if (process.stdout.isTTY) {
     process.stdout.write(`${c.dim}${crashHint}${c.reset}`);
   }
@@ -3775,15 +3887,15 @@ async function runDoctorDeviceChecks(nextSteps: string[]): Promise<void> {
       parts.push(`${device.cpuCores} CPU math cores`);
       doctorCheck("device probe", device.gpuOffloading, device.gpuOffloading
         ? parts.join("; ")
-        : `${parts.join("; ")}. Next: check QMD_LLAMA_GPU and llama.cpp backend support`);
+        : `${parts.join("; ")}. Next: check QMDX_LLAMA_GPU and llama.cpp backend support`);
       if (!device.gpuOffloading) {
-        nextSteps.push("GPU was detected but offloading is disabled; check `QMD_LLAMA_GPU=metal|cuda|vulkan` and rerun `qmd doctor`.");
+        nextSteps.push("GPU was detected but offloading is disabled; check `QMDX_LLAMA_GPU=metal|cuda|vulkan` and rerun `qmdx doctor`.");
       }
 
       // Surface the darwin residency-set mitigation. libggml-metal's
       // process-static device dtor asserts on un-expired residency sets
       // during libc exit() (ggml-org/llama.cpp#22593), producing a giant
-      // stderr backtrace after correct output. The bin/qmd launcher exports
+      // stderr backtrace after correct output. The bin/qmdx launcher exports
       // GGML_METAL_NO_RESIDENCY=1 on darwin to skip the assertion entirely.
       // No measurable perf cost on short-lived CLI calls.
       if (device.gpu === "metal" && process.platform === "darwin") {
@@ -3791,23 +3903,23 @@ async function runDoctorDeviceChecks(nextSteps: string[]): Promise<void> {
           doctorCheck(
             "darwin metal residency",
             true,
-            "GGML_METAL_NO_RESIDENCY=1 set by launcher; clean process exit (avoids ggml-org/llama.cpp#22593). Opt back in with QMD_METAL_KEEP_RESIDENCY=1 if you run long-lived qmd processes."
+            "GGML_METAL_NO_RESIDENCY=1 set by launcher; clean process exit (avoids ggml-org/llama.cpp#22593). Opt back in with QMDX_METAL_KEEP_RESIDENCY=1 if you run long-lived qmdx processes."
           );
         } else {
           doctorCheck(
             "darwin metal residency",
             false,
-            "residency sets active (QMD_METAL_KEEP_RESIDENCY=1 or launcher bypassed); llama-using commands may dump a libggml-metal backtrace at exit (ggml-org/llama.cpp#22593) even when output succeeded."
+            "residency sets active (QMDX_METAL_KEEP_RESIDENCY=1 or launcher bypassed); llama-using commands may dump a libggml-metal backtrace at exit (ggml-org/llama.cpp#22593) even when output succeeded."
           );
-          nextSteps.push("Unset `QMD_METAL_KEEP_RESIDENCY` so the launcher can disable Metal residency sets; without this, query/vsearch/embed dump a stack trace at exit even on success.");
+          nextSteps.push("Unset `QMDX_METAL_KEEP_RESIDENCY` so the launcher can disable Metal residency sets; without this, query/vsearch/embed dump a stack trace at exit even on success.");
         }
       }
     } else {
       const cudaDiagnostic = linuxCudaRuntimeDiagnostic();
       const diagnosticSuffix = cudaDiagnostic ? ` ${cudaDiagnostic}.` : "";
-      doctorCheck("device probe", false, `running on CPU (${device.cpuCores} math cores).${diagnosticSuffix} Next: install/configure Metal, CUDA, or Vulkan for faster embeddings, or set QMD_FORCE_CPU=1 to make CPU mode explicit`);
+      doctorCheck("device probe", false, `running on CPU (${device.cpuCores} math cores).${diagnosticSuffix} Next: install/configure Metal, CUDA, or Vulkan for faster embeddings, or set QMDX_FORCE_CPU=1 to make CPU mode explicit`);
       if (cudaDiagnostic) {
-        nextSteps.push(`${cudaDiagnostic}; install CUDA runtime/cuBLAS libraries or add their directory to LD_LIBRARY_PATH, then rerun \`qmd doctor\`.`);
+        nextSteps.push(`${cudaDiagnostic}; install CUDA runtime/cuBLAS libraries or add their directory to LD_LIBRARY_PATH, then rerun \`qmdx doctor\`.`);
       } else {
         nextSteps.push("Vector operations are running on CPU; install/configure Metal, CUDA, or Vulkan if embedding/query performance is too slow.");
       }
@@ -3817,8 +3929,8 @@ async function runDoctorDeviceChecks(nextSteps: string[]): Promise<void> {
       process.stdout.write(`\r${" ".repeat(crashHint.length)}\r`);
     }
     const message = error instanceof Error ? sanitizeDiagnosticMessage(error.message) : sanitizeDiagnosticMessage(String(error));
-    doctorCheck("device probe", false, `probe failed: ${message}. Next: run with QMD_FORCE_CPU=1 to bypass GPU probing, or set QMD_LLAMA_GPU=metal|cuda|vulkan and retry`);
-    nextSteps.push("GPU probe failed; try `QMD_FORCE_CPU=1 qmd doctor` to confirm CPU fallback, then fix GPU drivers/backend if acceleration is expected.");
+    doctorCheck("device probe", false, `probe failed: ${message}. Next: run with QMDX_FORCE_CPU=1 to bypass GPU probing, or set QMDX_LLAMA_GPU=metal|cuda|vulkan and retry`);
+    nextSteps.push("GPU probe failed; try `QMDX_FORCE_CPU=1 qmdx doctor` to confirm CPU fallback, then fix GPU drivers/backend if acceleration is expected.");
   }
 }
 
@@ -3831,7 +3943,7 @@ async function showDoctor(): Promise<void> {
   const fingerprint = getEmbeddingFingerprint(embedModel);
   const nextSteps: string[] = [];
 
-  console.log(`${c.bold}QMD Doctor${c.reset}\n`);
+  console.log(`${c.bold}QMDx Doctor${c.reset}\n`);
   console.log(`Index: ${getDbPath()}`);
   console.log(`Runtime: ${isBun ? "bun:sqlite" : "better-sqlite3"}`);
 
@@ -3871,9 +3983,9 @@ async function showDoctor(): Promise<void> {
 
   try {
     const pending = getHashesNeedingEmbedding(db, undefined, embedModel);
-    doctorCheck("embedding freshness", pending === 0, pending === 0 ? "all active documents match current fingerprint" : `${formatCount(pending)} active documents need embeddings. Next: \`qmd embed\``);
+    doctorCheck("embedding freshness", pending === 0, pending === 0 ? "all active documents match current fingerprint" : `${formatCount(pending)} active documents need embeddings. Next: \`qmdx embed\``);
     if (pending > 0) {
-      nextSteps.push(`Run \`qmd embed\` to generate ${formatCount(pending)} missing/stale document embeddings.`);
+      nextSteps.push(`Run \`qmdx embed\` to generate ${formatCount(pending)} missing/stale document embeddings.`);
     }
   } catch (error) {
     doctorCheck("embedding freshness", false, error instanceof Error ? error.message : String(error));
@@ -3903,17 +4015,17 @@ async function showDoctor(): Promise<void> {
       const namedGroups = namedFingerprintRows
         .map(row => `${row.fingerprint}${row.fingerprint === fingerprint ? " (current)" : ""}: ${shortModelName(row.model)} ${formatCount(row.docs)} docs/${formatCount(row.chunks)} chunks`)
         .join("; ");
-      doctorCheck("mixed named embedding fingerprints", false, `content_vectors contains ${namedFingerprints.length} named fingerprints: ${namedGroups}. Next: \`qmd embed\` or \`qmd embed --force\``);
-      nextSteps.push("Run `qmd embed` to converge mixed named embedding fingerprints; use `qmd embed --force` if old named fingerprints or vector sample mismatches remain.");
+      doctorCheck("mixed named embedding fingerprints", false, `content_vectors contains ${namedFingerprints.length} named fingerprints: ${namedGroups}. Next: \`qmdx embed\` or \`qmdx embed --force\``);
+      nextSteps.push("Run `qmdx embed` to converge mixed named embedding fingerprints; use `qmdx embed --force` if old named fingerprints or vector sample mismatches remain.");
     }
     const details = rows.length === 0
       ? `no vectors yet; current fingerprint ${fingerprint}`
       : ok
         ? `${formatCount(currentDocs)} docs on current fingerprint (${fingerprint})`
-        : `${formatCount(currentDocs)} docs current, ${formatCount(otherDocs)} docs legacy/stale. ${groups}. Next: \`qmd embed\``;
+        : `${formatCount(currentDocs)} docs current, ${formatCount(otherDocs)} docs legacy/stale. ${groups}. Next: \`qmdx embed\``;
     doctorCheck("embedding fingerprints", ok, details);
     if (!ok) {
-      nextSteps.push("Run `qmd embed` to migrate active documents to the current embedding fingerprint; use `qmd embed --force` if vector samples still fail afterward.");
+      nextSteps.push("Run `qmdx embed` to migrate active documents to the current embedding fingerprint; use `qmdx embed --force` if vector samples still fail afterward.");
     }
   } catch (error) {
     doctorCheck("embedding fingerprints", false, error instanceof Error ? error.message : String(error));
@@ -3923,12 +4035,12 @@ async function showDoctor(): Promise<void> {
     const vectorSample = await checkEmbeddingVectorSamples(db, embedModel, fingerprint);
     doctorCheck("embedding vector sample", vectorSample.ok, vectorSample.details);
     if (!vectorSample.ok) {
-      nextSteps.push("Run `qmd embed --force` to rebuild existing vectors that no longer reproduce under the current embedding pipeline.");
+      nextSteps.push("Run `qmdx embed --force` to rebuild existing vectors that no longer reproduce under the current embedding pipeline.");
     }
   } catch (error) {
     const message = error instanceof Error ? sanitizeDiagnosticMessage(error.message) : sanitizeDiagnosticMessage(String(error));
-    doctorCheck("embedding vector sample", false, `${message}; rebuild with \`qmd embed --force\``);
-    nextSteps.push("Run `qmd embed --force` to rebuild existing vectors, then rerun `qmd doctor`.");
+    doctorCheck("embedding vector sample", false, `${message}; rebuild with \`qmdx embed --force\``);
+    nextSteps.push("Run `qmdx embed --force` to rebuild existing vectors, then rerun `qmdx doctor`.");
   }
 
   const steps = normalizedDoctorNextSteps(nextSteps);
@@ -3943,7 +4055,7 @@ async function showDoctor(): Promise<void> {
 }
 
 function printDoctorHint(): void {
-  console.error("If qmd still behaves unexpectedly, run 'qmd doctor' for diagnostics.");
+  console.error("If qmdx still behaves unexpectedly, run 'qmdx doctor' for diagnostics.");
 }
 
 function exitWithError(error: unknown, code = 1): never {
@@ -3976,15 +4088,15 @@ async function showVersion(): Promise<void> {
   }
 
   const versionStr = commit ? `${pkg.version} (${commit})` : pkg.version;
-  console.log(`qmd ${versionStr}`);
+  console.log(`qmdx ${versionStr}`);
 }
 
 // Main CLI - only run if this is the main module
 const __filename = fileURLToPath(import.meta.url);
 const argv1 = process.argv[1];
 const isMain = argv1 === __filename
-  || argv1?.endsWith("/qmd.ts")
-  || argv1?.endsWith("/qmd.js")
+  || argv1?.endsWith("/qmdx.ts")
+  || argv1?.endsWith("/qmdx.js")
   || (argv1 != null && realpathSync(argv1) === __filename);
 if (isMain) {
   // Flip to production mode only when this module is executed as the CLI
@@ -3993,6 +4105,20 @@ if (isMain) {
   enableProductionMode();
 
   const cli = parseCLI();
+
+  // Shared/global models config: when --index-dir, --models-config, or
+  // QMDX_MODELS_CONFIG is in effect, the embed/rerank/generate model URIs are
+  // read from and written to a single shared `models.yml` (default
+  // ~/.config/qmdx/models.yml) instead of being duplicated into each isolated
+  // index's index.yml. The model GGUF files are already shared, so the
+  // config mirrors that. Without any of these, the legacy per-index `models:`
+  // block in index.yml keeps working unchanged.
+  {
+    const modelsConfigFlag = cli.values["models-config"] as string | undefined;
+    if (modelsConfigFlag || activeIndexDir || process.env.QMDX_MODELS_CONFIG) {
+      enableSharedModelsConfig(modelsConfigFlag);
+    }
+  }
 
   if (cli.values.version) {
     await showVersion();
@@ -4005,15 +4131,15 @@ if (isMain) {
   }
 
   if (cli.values.help && cli.command === "skill") {
-    console.log("Usage: qmd skill <show|install> [options]");
+    console.log("Usage: qmdx skill <show|install> [options]");
     console.log("");
     console.log("Commands:");
-    console.log("  show                 Print the QMD skill");
-    console.log("  install              Install QMD skill into ./.agents/skills/qmd");
+    console.log("  show                 Print the QMDx skill");
+    console.log("  install              Install QMDx skill into ./.agents/skills/qmdx");
     console.log("");
     console.log("Options:");
-    console.log("  --global             Install into ~/.agents/skills/qmd");
-    console.log("  --yes                Also create the .claude/skills/qmd symlink");
+    console.log("  --global             Install into ~/.agents/skills/qmdx");
+    console.log("  --yes                Also create the .claude/skills/qmdx symlink");
     console.log("  -f, --force          Replace existing install or symlink");
     process.exit(0);
   }
@@ -4027,30 +4153,30 @@ if (isMain) {
     case "context": {
       const subcommand = cli.args[0];
       if (!subcommand) {
-        console.error("Usage: qmd context <add|list|rm>");
+        console.error("Usage: qmdx context <add|list|rm>");
         console.error("");
         console.error("Commands:");
-        console.error("  qmd context add [path] \"text\"  - Add context (defaults to current dir)");
-        console.error("  qmd context add / \"text\"       - Add global context to all collections");
-        console.error("  qmd context list                - List all contexts");
-        console.error("  qmd context rm <path>           - Remove context");
+        console.error("  qmdx context add [path] \"text\"  - Add context (defaults to current dir)");
+        console.error("  qmdx context add / \"text\"       - Add global context to all collections");
+        console.error("  qmdx context list                - List all contexts");
+        console.error("  qmdx context rm <path>           - Remove context");
         process.exit(1);
       }
 
       switch (subcommand) {
         case "add": {
           if (cli.args.length < 2) {
-            console.error("Usage: qmd context add [path] \"text\"");
+            console.error("Usage: qmdx context add [path] \"text\"");
             console.error("");
             console.error("Examples:");
-            console.error("  qmd context add \"Context for current directory\"");
-            console.error("  qmd context add . \"Context for current directory\"");
-            console.error("  qmd context add /subfolder \"Context for subfolder\"");
-            console.error("  qmd context add / \"Global context for all collections\"");
+            console.error("  qmdx context add \"Context for current directory\"");
+            console.error("  qmdx context add . \"Context for current directory\"");
+            console.error("  qmdx context add /subfolder \"Context for subfolder\"");
+            console.error("  qmdx context add / \"Global context for all collections\"");
             console.error("");
             console.error("  Using virtual paths:");
-            console.error("  qmd context add qmd://journals/ \"Context for entire journals collection\"");
-            console.error("  qmd context add qmd://journals/2024 \"Context for 2024 journals\"");
+            console.error("  qmdx context add qmd://journals/ \"Context for entire journals collection\"");
+            console.error("  qmdx context add qmd://journals/2024 \"Context for 2024 journals\"");
             process.exit(1);
           }
 
@@ -4083,10 +4209,10 @@ if (isMain) {
         case "rm":
         case "remove": {
           if (cli.args.length < 2 || !cli.args[1]) {
-            console.error("Usage: qmd context rm <path>");
+            console.error("Usage: qmdx context rm <path>");
             console.error("Examples:");
-            console.error("  qmd context rm /");
-            console.error("  qmd context rm qmd://journals/2024");
+            console.error("  qmdx context rm /");
+            console.error("  qmdx context rm qmd://journals/2024");
             process.exit(1);
           }
           contextRemove(cli.args[1]);
@@ -4103,7 +4229,7 @@ if (isMain) {
 
     case "get": {
       if (!cli.args[0]) {
-        console.error("Usage: qmd get <filepath>[:from[:count]] [--from <line>] [-l <lines>] [--no-line-numbers] [--full-path]");
+        console.error("Usage: qmdx get <filepath>[:from[:count]] [--from <line>] [-l <lines>] [--no-line-numbers] [--full-path]");
         process.exit(1);
       }
       const fromLine = cli.values.from ? parseInt(cli.values.from as string, 10) : undefined;
@@ -4116,7 +4242,7 @@ if (isMain) {
 
     case "multi-get": {
       if (!cli.args[0]) {
-        console.error("Usage: qmd multi-get <pattern> [-l <lines>] [--max-bytes <bytes>] [--no-line-numbers] [--full-path] [--format json|csv|md|xml|files]");
+        console.error("Usage: qmdx multi-get <pattern> [-l <lines>] [--max-bytes <bytes>] [--no-line-numbers] [--full-path] [--format json|csv|md|xml|files]");
         console.error("  pattern: glob (e.g., 'journals/2025-05*.md') or comma-separated list");
         process.exit(1);
       }
@@ -4154,8 +4280,8 @@ if (isMain) {
         case "remove":
         case "rm": {
           if (!cli.args[1]) {
-            console.error("Usage: qmd collection remove <name>");
-            console.error("  Use 'qmd collection list' to see available collections");
+            console.error("Usage: qmdx collection remove <name>");
+            console.error("  Use 'qmdx collection list' to see available collections");
             process.exit(1);
           }
           collectionRemove(cli.args[1]);
@@ -4165,8 +4291,8 @@ if (isMain) {
         case "rename":
         case "mv": {
           if (!cli.args[1] || !cli.args[2]) {
-            console.error("Usage: qmd collection rename <old-name> <new-name>");
-            console.error("  Use 'qmd collection list' to see available collections");
+            console.error("Usage: qmdx collection rename <old-name> <new-name>");
+            console.error("  Use 'qmdx collection list' to see available collections");
             process.exit(1);
           }
           collectionRename(cli.args[1], cli.args[2]);
@@ -4178,7 +4304,7 @@ if (isMain) {
           const name = cli.args[1];
           const cmd = cli.args.slice(2).join(' ') || null;
           if (!name) {
-            console.error("Usage: qmd collection update-cmd <name> [command]");
+            console.error("Usage: qmdx collection update-cmd <name> [command]");
             console.error("  Set the command to run before indexing (e.g., 'git pull')");
             console.error("  Omit command to clear it");
             process.exit(1);
@@ -4202,7 +4328,7 @@ if (isMain) {
         case "exclude": {
           const name = cli.args[1];
           if (!name) {
-            console.error(`Usage: qmd collection ${subcommand} <name>`);
+            console.error(`Usage: qmdx collection ${subcommand} <name>`);
             console.error(`  ${subcommand === 'include' ? 'Include' : 'Exclude'} collection in default queries`);
             process.exit(1);
           }
@@ -4222,7 +4348,7 @@ if (isMain) {
         case "info": {
           const name = cli.args[1];
           if (!name) {
-            console.error("Usage: qmd collection show <name>");
+            console.error("Usage: qmdx collection show <name>");
             process.exit(1);
           }
           const { getCollection } = await import("../collections.js");
@@ -4247,7 +4373,7 @@ if (isMain) {
 
         case "help":
         case undefined: {
-          console.log("Usage: qmd collection <command> [options]");
+          console.log("Usage: qmdx collection <command> [options]");
           console.log("");
           console.log("Commands:");
           console.log("  list                      List all collections");
@@ -4260,15 +4386,15 @@ if (isMain) {
           console.log("  exclude <name>            Exclude from default queries");
           console.log("");
           console.log("Examples:");
-          console.log("  qmd collection add ~/notes --name notes");
-          console.log("  qmd collection update-cmd brain 'git pull'");
-          console.log("  qmd collection exclude archive");
+          console.log("  qmdx collection add ~/notes --name notes");
+          console.log("  qmdx collection update-cmd brain 'git pull'");
+          console.log("  qmdx collection exclude archive");
           process.exit(0);
         }
 
         default:
           console.error(`Unknown subcommand: ${subcommand}`);
-          console.error("Run 'qmd collection help' for usage");
+          console.error("Run 'qmdx collection help' for usage");
           printDoctorHint();
           process.exit(1);
       }
@@ -4277,7 +4403,7 @@ if (isMain) {
 
     case "init":
       try {
-        initLocalIndex();
+        initLocalIndex(cli.values["index-dir"] as string | undefined);
       } catch (error) {
         exitWithError(error);
       }
@@ -4342,7 +4468,7 @@ if (isMain) {
 
     case "search":
       if (!cli.query) {
-        console.error("Usage: qmd search [options] <query>");
+        console.error("Usage: qmdx search [options] <query>");
         process.exit(1);
       }
       search(cli.query, cli.opts);
@@ -4351,7 +4477,7 @@ if (isMain) {
     case "vsearch":
     case "vector-search": // undocumented alias
       if (!cli.query) {
-        console.error("Usage: qmd vsearch [options] <query>");
+        console.error("Usage: qmdx vsearch [options] <query>");
         process.exit(1);
       }
       // Default min-score for vector search is 0.3
@@ -4364,7 +4490,7 @@ if (isMain) {
     case "query":
     case "deep-search": // undocumented alias
       if (!cli.query) {
-        console.error("Usage: qmd query [options] <query>");
+        console.error("Usage: qmdx query [options] <query>");
         process.exit(1);
       }
       await querySearch(cli.query, cli.opts);
@@ -4373,7 +4499,7 @@ if (isMain) {
     case "bench": {
       const fixturePath = cli.args[0];
       if (!fixturePath) {
-        console.error("Usage: qmd bench <fixture.json> [--json] [-c collection]");
+        console.error("Usage: qmdx bench <fixture.json> [--json] [-c collection]");
         console.error("");
         console.error("Run search quality benchmarks against a fixture file.");
         console.error("See src/bench/fixtures/example.json for the fixture format.");
@@ -4393,10 +4519,9 @@ if (isMain) {
     case "mcp": {
       const sub = cli.args[0]; // stop | status | undefined
 
-      // Cache dir for PID/log files — same dir as the index
-      const cacheDir = process.env.XDG_CACHE_HOME
-        ? resolve(process.env.XDG_CACHE_HOME, "qmd")
-        : resolve(homedir(), ".cache", "qmd");
+      // Cache dir for PID/log files — next to the active index when --index-dir
+      // (or QMDX_INDEX_DIR) is in effect, otherwise the global qmdx cache.
+      const cacheDir = activeIndexDir ?? appCacheDir();
       const pidPath = resolve(cacheDir, "mcp.pid");
 
       // Subcommands take priority over flags
@@ -4410,7 +4535,7 @@ if (isMain) {
           process.kill(pid, 0); // alive?
           process.kill(pid, "SIGTERM");
           unlinkSync(pidPath);
-          console.log(`Stopped QMD MCP server (PID ${pid}).`);
+          console.log(`Stopped QMDx MCP server (PID ${pid}).`);
         } catch {
           unlinkSync(pidPath);
           console.log("Cleaned up stale PID file (server was not running).");
@@ -4420,7 +4545,7 @@ if (isMain) {
 
       if (cli.values.http) {
         const port = Number(cli.values.port) || 8181;
-        // --host overrides the default localhost bind; QMD_HOST env is the
+        // --host overrides the default localhost bind; QMDX_HOST env is the
         // fallback (resolved in startMcpHttpServer). Use "0.0.0.0" to accept
         // off-host connections, e.g. a container liveness probe.
         const host = cli.values.host ? String(cli.values.host) : undefined;
@@ -4431,7 +4556,7 @@ if (isMain) {
             const existingPid = parseInt(readFileSync(pidPath, "utf-8").trim());
             try {
               process.kill(existingPid, 0); // alive?
-              console.error(`Already running (PID ${existingPid}). Run 'qmd mcp stop' first.`);
+              console.error(`Already running (PID ${existingPid}). Run 'qmdx mcp stop' first.`);
               process.exit(1);
             } catch {
               // Stale PID file — continue
@@ -4442,7 +4567,9 @@ if (isMain) {
           const logPath = resolve(cacheDir, "mcp.log");
           const logFd = openSync(logPath, "w"); // truncate — fresh log per daemon run
           const selfPath = fileURLToPath(import.meta.url);
-          const indexArgs = cli.values.index ? ["--index", String(cli.values.index)] : [];
+          const indexArgs: string[] = [];
+          if (cli.values.index) indexArgs.push("--index", String(cli.values.index));
+          if (cli.values["index-dir"]) indexArgs.push("--index-dir", String(cli.values["index-dir"]));
           const hostArgs = host ? ["--host", host] : [];
           const spawnArgs = selfPath.endsWith(".ts")
             ? ["--import", pathJoin(dirname(selfPath), "..", "..", "node_modules", "tsx", "dist", "esm", "index.mjs"), selfPath, ...indexArgs, "mcp", "--http", "--port", String(port), ...hostArgs]
@@ -4519,22 +4646,22 @@ if (isMain) {
 
         case "help":
         case undefined: {
-          console.log("Usage: qmd skill <show|install> [options]");
+          console.log("Usage: qmdx skill <show|install> [options]");
           console.log("");
           console.log("Commands:");
-          console.log("  show                 Print the QMD skill");
-          console.log("  install              Install QMD skill into ./.agents/skills/qmd");
+          console.log("  show                 Print the QMDx skill");
+          console.log("  install              Install QMDx skill into ./.agents/skills/qmdx");
           console.log("");
           console.log("Options:");
-          console.log("  --global             Install into ~/.agents/skills/qmd");
-          console.log("  --yes                Also create the .claude/skills/qmd symlink");
+          console.log("  --global             Install into ~/.agents/skills/qmdx");
+          console.log("  --yes                Also create the .claude/skills/qmdx symlink");
           console.log("  -f, --force          Replace existing install or symlink");
           process.exit(0);
         }
 
         default:
           console.error(`Unknown subcommand: ${subcommand}`);
-          console.error("Run 'qmd skill help' for usage");
+          console.error("Run 'qmdx skill help' for usage");
           printDoctorHint();
           process.exit(1);
       }
@@ -4572,7 +4699,7 @@ if (isMain) {
 
     default:
       console.error(`Unknown command: ${cli.command}`);
-      console.error("Run 'qmd --help' for usage.");
+      console.error("Run 'qmdx --help' for usage.");
       printDoctorHint();
       process.exit(1);
   }

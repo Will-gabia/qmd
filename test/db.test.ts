@@ -17,14 +17,14 @@ function readBusyTimeout(db: ReturnType<typeof openDatabase>): number {
 }
 
 describe("openDatabase", () => {
-  const originalEnv = process.env.QMD_SQLITE_BUSY_TIMEOUT;
+  const originalEnv = process.env.QMDX_SQLITE_BUSY_TIMEOUT;
   afterEach(() => {
-    if (originalEnv === undefined) delete process.env.QMD_SQLITE_BUSY_TIMEOUT;
-    else process.env.QMD_SQLITE_BUSY_TIMEOUT = originalEnv;
+    if (originalEnv === undefined) delete process.env.QMDX_SQLITE_BUSY_TIMEOUT;
+    else process.env.QMDX_SQLITE_BUSY_TIMEOUT = originalEnv;
   });
 
   test("sets the default busy_timeout so concurrent writers wait for the lock", () => {
-    delete process.env.QMD_SQLITE_BUSY_TIMEOUT;
+    delete process.env.QMDX_SQLITE_BUSY_TIMEOUT;
     const db = openDatabase(":memory:");
     try {
       expect(readBusyTimeout(db)).toBe(DEFAULT_BUSY_TIMEOUT_MS);
@@ -34,7 +34,7 @@ describe("openDatabase", () => {
   });
 
   test("applies the busy_timeout to each independently opened connection", async () => {
-    delete process.env.QMD_SQLITE_BUSY_TIMEOUT;
+    delete process.env.QMDX_SQLITE_BUSY_TIMEOUT;
     const dir = await mkdtemp(join(tmpdir(), "qmd-busy-"));
     const dbPath = join(dir, "shared.sqlite");
     try {
@@ -52,8 +52,8 @@ describe("openDatabase", () => {
     }
   });
 
-  test("QMD_SQLITE_BUSY_TIMEOUT overrides the default", () => {
-    process.env.QMD_SQLITE_BUSY_TIMEOUT = "750";
+  test("QMDX_SQLITE_BUSY_TIMEOUT overrides the default", () => {
+    process.env.QMDX_SQLITE_BUSY_TIMEOUT = "750";
     const db = openDatabase(":memory:");
     try {
       expect(readBusyTimeout(db)).toBe(750);
@@ -62,8 +62,8 @@ describe("openDatabase", () => {
     }
   });
 
-  test("QMD_SQLITE_BUSY_TIMEOUT=0 restores fail-fast", () => {
-    process.env.QMD_SQLITE_BUSY_TIMEOUT = "0";
+  test("QMDX_SQLITE_BUSY_TIMEOUT=0 restores fail-fast", () => {
+    process.env.QMDX_SQLITE_BUSY_TIMEOUT = "0";
     const db = openDatabase(":memory:");
     try {
       expect(readBusyTimeout(db)).toBe(0);
@@ -72,8 +72,8 @@ describe("openDatabase", () => {
     }
   });
 
-  test("ignores unparseable QMD_SQLITE_BUSY_TIMEOUT and falls back to the default", () => {
-    process.env.QMD_SQLITE_BUSY_TIMEOUT = "not-a-number";
+  test("ignores unparseable QMDX_SQLITE_BUSY_TIMEOUT and falls back to the default", () => {
+    process.env.QMDX_SQLITE_BUSY_TIMEOUT = "not-a-number";
     const db = openDatabase(":memory:");
     try {
       expect(readBusyTimeout(db)).toBe(DEFAULT_BUSY_TIMEOUT_MS);

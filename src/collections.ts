@@ -7,7 +7,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join, dirname, resolve } from "path";
-import { qmdHomedir } from "./paths.js";
+import { appConfigDir } from "./paths.js";
 import YAML from "yaml";
 
 // ============================================================================
@@ -67,6 +67,16 @@ export interface NamedCollection extends Collection {
 // Current index name (default: "index")
 let currentIndexName: string = "index";
 
+// Shared models config. When enabled, the embed/rerank/generate model URIs
+// live in a single shared `models.yml` (default ~/.config/qmdx/models.yml)
+// instead of being duplicated into every isolated --index-dir index.yml. The
+// GGUF model files themselves are already shared (~/.cache/qmdx/models), so
+// keeping the config in one place matches how the binaries are stored.
+//
+// `sharedModelsPath` is the override path when set explicitly.
+let sharedModelsEnabled = false;
+let sharedModelsPath: string | undefined;
+
 // SDK mode: optional in-memory config or custom config path
 let configSource: { type: 'file'; path?: string } | { type: 'inline'; config: CollectionConfig } = { type: 'file' };
 
@@ -98,6 +108,62 @@ export function setConfigSource(source?: { configPath?: string; config?: Collect
  * Set the current index name for config file lookup
  * Config file will be ~/.config/qmd/{indexName}.yml
  */
+/**
+ * Enable reading/writing models from a shared `models.yml` instead of the
+ * per-index `index.yml`'s `models:` block. Active when --index-dir,
+ * --models-config, or QMDX_MODELS_CONFIG is in effect.
+ *
+ * @param explicitPath Optional explicit file path (from --models-config).
+ *        When omitted, falls back to QMDX_MODELS_CONFIG or the default global
+ *        ~/.config/qmdx/models.yml.
+ */
+export function enableSharedModelsConfig(explicitPath?: string): void {
+  sharedModelsEnabled = true;
+  sharedModelsPath = explicitPath
+    ? resolve(process.cwd(), explicitPath)
+    : (process.env.QMDX_MODELS_CONFIG || join(appConfigDir(), "models.yml"));
+}
+
+/** True once shared models mode has been enabled for this process. */
+export function isSharedModelsConfigEnabled(): boolean {
+  return sharedModelsEnabled;
+}
+
+/** Resolved path of the shared models config file (only valid when enabled). */
+export function getModelsConfigPath(): string {
+  return sharedModelsPath
+    ?? process.env.QMDX_MODELS_CONFIG
+    ?? join(appConfigDir(), "models.yml");
+}
+
+/** Load the shared models config, or undefined if the file does not exist. */
+export function loadSharedModelsConfig(): ModelsConfig | undefined {
+  const p = getModelsConfigPath();
+  if (!existsSync(p)) return undefined;
+  try {
+    const parsed = YAML.parse(readFileSync(p, "utf-8")) as ModelsConfig | null | undefined;
+    return parsed ?? undefined;
+  } catch (error) {
+    throw new Error(`Failed to parse shared models config ${p}: ${error}`);
+  }
+}
+
+/** Persist the models block to the shared `models.yml` (creating its dir). */
+export function saveSharedModelsConfig(models: ModelsConfig): void {
+  const p = getModelsConfigPath();
+  const dir = dirname(p);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  try {
+    const yaml = YAML.stringify(
+      { embed: models.embed, generate: models.generate, rerank: models.rerank },
+      { indent: 2, lineWidth: 0 },
+    );
+    writeFileSync(p, yaml, "utf-8");
+  } catch (error) {
+    throw new Error(`Failed to write shared models config ${p}: ${error}`);
+  }
+}
+
 export function setConfigIndexName(name: string): void {
   // Resolve relative paths to absolute paths and sanitize for use as filename
   if (name.includes('/')) {
@@ -110,15 +176,9 @@ export function setConfigIndexName(name: string): void {
 }
 
 function getConfigDir(): string {
-  // Allow override via QMD_CONFIG_DIR for testing
-  if (process.env.QMD_CONFIG_DIR) {
-    return process.env.QMD_CONFIG_DIR;
-  }
-  // Respect XDG Base Directory specification (consistent with store.ts)
-  if (process.env.XDG_CONFIG_HOME) {
-    return join(process.env.XDG_CONFIG_HOME, "qmd");
-  }
-  return join(qmdHomedir(), ".config", "qmd");
+  // Centralized in paths.ts so the fork keeps its state separate from any
+  // upstream `qmd` install. Honors QMDX_CONFIG_DIR and XDG_CONFIG_HOME.
+  return appConfigDir();
 }
 
 function getConfigFilePath(): string {

@@ -1,72 +1,97 @@
-# QMD - Query Markup Documents
+# QMDx - Query Markup Documents
 
-An on-device search engine for everything you need to remember. Index your markdown notes, meeting transcripts, documentation, and knowledge bases. Search with keywords or natural language. Ideal for your agentic flows.
+An on-device search engine for everything you need to remember. Index your
+markdown notes, meeting transcripts, documentation, and knowledge bases. Search
+with keywords or natural language. Ideal for your agentic flows.
 
-QMD combines BM25 full-text search, vector semantic search, and LLM re-ranking—all running locally via node-llama-cpp with GGUF models.
+QMDx combines BM25 full-text search, vector semantic search, and LLM
+re-ranking — all running locally via node-llama-cpp with GGUF models.
 
-![QMD Architecture](assets/qmd-architecture.png)
+### Highlights
 
-You can read more about QMD's progress in the [CHANGELOG](CHANGELOG.md).
+- **Multi-project index isolation.** `--index-dir <dir>` (env `QMDX_INDEX_DIR`)
+  places a project's full index — `index.yml` + `index.sqlite` (+`-shm`/`-wal`)
+  — inside `<dir>`, and `--models-config <path>` (env `QMDX_MODELS_CONFIG`)
+  splits the `models:` block into a single shared `models.yml`. GGUF model
+  files stay shared; only collections, context, and search data are isolated.
+  See [`docs/PROJECT-ISOLATION.ko.md`](docs/PROJECT-ISOLATION.ko.md) (한글 가이드).
+- **OpenAI-compatible providers.** The `openai:` model scheme routes embeddings
+  to `/v1/embeddings` and query expansion to `/v1/chat/completions`, so you can
+  use a remote OpenAI-compatible endpoint (e.g. Gabia AI Hub with `bge-m3` +
+  `minimax`) instead of downloading local GGUF weights. Reranking can be
+  disabled with `QMDX_RERANK_MODEL=none` (it still uses the local GGUF reranker
+  by default, since there is no standard OpenAI rerank API). Full configuration
+  reference: [docs/OPENAI-PROVIDERS.md](docs/OPENAI-PROVIDERS.md).
+
+---
+
+
+![QMDx Architecture](assets/qmd-architecture.png)
+
+You can read more about QMDx's progress in the [CHANGELOG](CHANGELOG.md).
 
 ## Quick Start
 
 ```sh
 # Install globally (Node or Bun)
-npm install -g @tobilu/qmd
+npm install -g qmdx
 # or
-bun install -g @tobilu/qmd
+bun install -g qmdx
+
+# Or install directly from git (before npm publish) — see Installation
+# npm install -g Will-gabia/qmdx
 
 # Or run directly
-npx @tobilu/qmd ...
-bunx @tobilu/qmd ...
+npx qmdx ...
+bunx qmdx ...
 
 # Create collections for your notes, docs, and meeting transcripts
-qmd collection add ~/notes --name notes
-qmd collection add ~/Documents/meetings --name meetings
-qmd collection add ~/work/docs --name docs
+qmdx collection add ~/notes --name notes
+qmdx collection add ~/Documents/meetings --name meetings
+qmdx collection add ~/work/docs --name docs
 
-# Add context to help with search results, each piece of context will be returned when matching sub documents are returned. This works as a tree. This is the key feature of QMD as it allows LLMs to make much better contextual choices when selecting documents. Don't sleep on it!
-qmd context add qmd://notes "Personal notes and ideas"
-qmd context add qmd://meetings "Meeting transcripts and notes"
-qmd context add qmd://docs "Work documentation"
+# Add context to help with search results, each piece of context will be returned when matching sub documents are returned. This works as a tree. This is the key feature of QMDx as it allows LLMs to make much better contextual choices when selecting documents. Don't sleep on it!
+qmdx context add qmd://notes "Personal notes and ideas"
+qmdx context add qmd://meetings "Meeting transcripts and notes"
+qmdx context add qmd://docs "Work documentation"
 
 # Generate embeddings for semantic search
-qmd embed
+qmdx embed
 
 # Search across everything
-qmd search "project timeline"           # Fast keyword search
-qmd vsearch "how to deploy"             # Semantic search
-qmd query "quarterly planning process"  # Hybrid + reranking (best quality)
+qmdx search "project timeline"           # Fast keyword search
+qmdx vsearch "how to deploy"             # Semantic search
+qmdx query "quarterly planning process"  # Hybrid + reranking (best quality)
 
 # Get a specific document
-qmd get "meetings/2024-01-15.md"
+qmdx get "meetings/2024-01-15.md"
 
 # Get a document by docid (shown in search results)
-qmd get "#abc123"
+qmdx get "#abc123"
 
 # Get multiple documents by glob pattern
-qmd multi-get "journals/2025-05*.md"
+qmdx multi-get "journals/2025-05*.md"
 
 # Search within a specific collection
-qmd search "API" -c notes
+qmdx search "API" -c notes
 
 # Export all matches for an agent
-qmd search "API" --all --files --min-score 0.3
+qmdx search "API" --all --files --min-score 0.3
 ```
 
 ### Using with AI Agents
 
-QMD's `--json` and `--files` output formats are designed for agentic workflows:
+QMDx's `--json` and `--files` output formats are designed for agentic workflows:
 
 ```sh
 # Get structured results for an LLM
-qmd search "authentication" --json -n 10
+qmdx search "authentication" --json -n 10
 
 # List all relevant files above a threshold
-qmd query "error handling" --all --files --min-score 0.4
+qmdx query "error handling" --all --files --min-score 0.4
 
 # Retrieve full document content
-qmd get "docs/api-reference.md" --full
+qmdx get "docs/api-reference.md" --full
 ```
 
 ### MCP Server
@@ -84,8 +109,8 @@ Although the tool works perfectly fine when you just tell your agent to use it o
 ```json
 {
   "mcpServers": {
-    "qmd": {
-      "command": "qmd",
+    "qmdx": {
+      "command": "qmdx",
       "args": ["mcp"]
     }
   }
@@ -95,8 +120,8 @@ Although the tool works perfectly fine when you just tell your agent to use it o
 **Claude Code** — Install the plugin (recommended):
 
 ```bash
-claude plugin marketplace add tobi/qmd
-claude plugin install qmd@qmd
+claude plugin marketplace add Will-gabia/qmdx
+claude plugin install qmdx@qmdx
 ```
 
 Or configure MCP manually in `~/.claude/settings.json`:
@@ -104,8 +129,8 @@ Or configure MCP manually in `~/.claude/settings.json`:
 ```json
 {
   "mcpServers": {
-    "qmd": {
-      "command": "qmd",
+    "qmdx": {
+      "command": "qmdx",
       "args": ["mcp"]
     }
   }
@@ -114,21 +139,21 @@ Or configure MCP manually in `~/.claude/settings.json`:
 
 #### HTTP Transport
 
-By default, QMD's MCP server uses stdio (launched as a subprocess by each client). For a shared, long-lived server that avoids repeated model loading, use the HTTP transport:
+By default, QMDx's MCP server uses stdio (launched as a subprocess by each client). For a shared, long-lived server that avoids repeated model loading, use the HTTP transport:
 
 ```sh
 # Foreground (Ctrl-C to stop)
-qmd mcp --http                    # localhost:8181
-qmd mcp --http --port 8080        # custom port
-qmd mcp --http --host 0.0.0.0     # bind all interfaces (e.g. container probes)
+qmdx mcp --http                    # localhost:8181
+qmdx mcp --http --port 8080        # custom port
+qmdx mcp --http --host 0.0.0.0     # bind all interfaces (e.g. container probes)
 
 # Background daemon
-qmd mcp --http --daemon           # start, writes PID to ~/.cache/qmd/mcp.pid
-qmd mcp stop                      # stop via PID file
-qmd status                        # shows "MCP: running (PID ...)" when active
+qmdx mcp --http --daemon           # start, writes PID to ~/.cache/qmdx/mcp.pid
+qmdx mcp stop                      # stop via PID file
+qmdx status                        # shows "MCP: running (PID ...)" when active
 ```
 
-The server binds to `localhost` by default. Pass `--host` (or set the `QMD_HOST`
+The server binds to `localhost` by default. Pass `--host` (or set the `QMDX_HOST`
 environment variable) to override — `--host 0.0.0.0` is useful when the server
 runs in a container and a liveness probe connects from a non-loopback address.
 
@@ -166,18 +191,18 @@ results seem unscoped. The HTTP `/query` and `/search` endpoints return
 
 ### SDK / Library Usage
 
-Use QMD as a library in your own Node.js or Bun applications.
+Use QMDx as a library in your own Node.js or Bun applications.
 
 #### Installation
 
 ```sh
-npm install @tobilu/qmd
+npm install qmdx
 ```
 
 #### Quick Start
 
 ```typescript
-import { createStore } from '@tobilu/qmd'
+import { createStore } from 'qmdx'
 
 const store = await createStore({
   dbPath: './my-index.sqlite',
@@ -199,7 +224,7 @@ await store.close()
 `createStore()` accepts three modes:
 
 ```typescript
-import { createStore } from '@tobilu/qmd'
+import { createStore } from 'qmdx'
 
 // 1. Inline config — no files needed besides the DB
 const store = await createStore({
@@ -215,7 +240,7 @@ const store = await createStore({
 // 2. YAML config file — collections defined in a file
 const store2 = await createStore({
   dbPath: './index.sqlite',
-  configPath: './qmd.yml',
+  configPath: './qmdx.yml',
 })
 
 // 3. DB-only — reopen a previously configured store
@@ -378,7 +403,7 @@ import type {
   CollectionConfig,    // Inline config shape
   IndexStatus,         // From getStatus()
   IndexHealthInfo,     // From getIndexHealth()
-} from '@tobilu/qmd'
+} from 'qmdx'
 ```
 
 Utility exports:
@@ -389,7 +414,7 @@ import {
   addLineNumbers,              // Add line numbers to text
   DEFAULT_MULTI_GET_MAX_BYTES, // Default max file size for multiGet (64KB)
   Maintenance,                 // Database maintenance operations
-} from '@tobilu/qmd'
+} from 'qmdx'
 ```
 
 #### Lifecycle
@@ -405,7 +430,7 @@ The SDK requires explicit `dbPath` — no defaults are assumed. This makes it sa
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         QMD Hybrid Search Pipeline                          │
+│                         QMDx Hybrid Search Pipeline                          │
 └─────────────────────────────────────────────────────────────────────────────┘
 
                               ┌─────────────────┐
@@ -512,7 +537,7 @@ The `query` command uses **Reciprocal Rank Fusion (RRF)** with position-aware bl
 
 ### GGUF Models (via node-llama-cpp)
 
-QMD uses three local GGUF models (auto-downloaded on first use):
+QMDx uses three local GGUF models (auto-downloaded on first use):
 
 | Model | Purpose | Size |
 |-------|---------|------|
@@ -520,45 +545,104 @@ QMD uses three local GGUF models (auto-downloaded on first use):
 | `qwen3-reranker-0.6b-q8_0` | Re-ranking | ~640MB |
 | `qmd-query-expansion-1.7B-q4_k_m` | Query expansion (fine-tuned) | ~1.1GB |
 
-Models are downloaded from HuggingFace and cached in `~/.cache/qmd/models/`.
+Models are downloaded from HuggingFace and cached in `~/.cache/qmdx/models/`.
 
 ### Custom Embedding Model
 
-Override the default embedding model via the `QMD_EMBED_MODEL` environment variable.
+Override the default embedding model via the `QMDX_EMBED_MODEL` environment variable.
 This is useful for multilingual corpora (e.g. Chinese, Japanese, Korean) where
 `embeddinggemma-300M` has limited coverage.
 
 ```sh
 # Use Qwen3-Embedding-0.6B for better multilingual (CJK) support
-export QMD_EMBED_MODEL="hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
+export QMDX_EMBED_MODEL="hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
 
 # After changing the model, re-embed all collections:
-qmd embed -f
+qmdx embed -f
 ```
 
 Supported model families:
 - **embeddinggemma** (default) — English-optimized, small footprint
 - **Qwen3-Embedding** — Multilingual (119 languages including CJK), MTEB top-ranked
+- **OpenAI-compatible providers** — remote embeddings via `openai:` scheme (see below)
 
-> **Note:** When switching embedding models, you must re-index with `qmd embed -f`
+> **Note:** When switching embedding models, you must re-index with `qmdx embed -f`
 > since vectors are not cross-compatible between models. The prompt format is
 > automatically adjusted for each model family.
+
+### OpenAI-Compatible Providers
+
+QMDx can route embeddings (`/v1/embeddings`) and query expansion
+(`/v1/chat/completions`) to remote OpenAI-compatible HTTP endpoints via the
+`openai:<model>` scheme, and disable reranking with `QMDX_RERANK_MODEL=none`.
+This lets you run QMDx without downloading any local GGUF weights — for
+example entirely against Gabia AI Hub with `bge-m3` + `minimax`.
+
+```sh
+export QMDX_EMBED_MODEL="openai:bge-m3"
+export QMDX_GENERATE_MODEL="openai:minimax"
+export QMDX_RERANK_MODEL="none"
+export QMDX_OPENAI_BASE_URL="https://ai-hub-gabia.gabia.com/v1"
+export QMDX_OPENAI_API_KEY="sk-..."
+
+qmdx embed -f          # index + embed via remote bge-m3
+qmdx query "..."       # expand (minimax) + search (bge-m3), no rerank
+```
+
+For the full configuration reference (all env vars, `index.yml` persistence,
+resolution precedence, reasoning-model tuning, and an end-to-end verification
+walkthrough), see **[docs/OPENAI-PROVIDERS.md](docs/OPENAI-PROVIDERS.md)**.
 
 ## Installation
 
 ```sh
-npm install -g @tobilu/qmd
+npm install -g qmdx
 # or
-bun install -g @tobilu/qmd
+bun install -g qmdx
+```
+
+### Install from a git source URL
+
+You can install qmdx directly from its git repository — handy before the
+package is published to npm or for tracking a feature branch. Full Korean
+guide: [`docs/INSTALL.ko.md`](docs/INSTALL.ko.md).
+
+```sh
+# Global install from the default (main) branch
+npm install -g Will-gabia/qmdx
+# or pin a branch / tag / commit when needed
+npm install -g Will-gabia/qmdx#<branch-or-tag>
+npm install -g https://github.com/Will-gabia/qmdx.git
+
+# Bun equivalents
+bun install -g Will-gabia/qmdx
+bun install -g github:Will-gabia/qmdx
+```
+
+This works out of the box because the package's `prepare` lifecycle hook builds
+the TypeScript `dist/` automatically when it's missing (the repo gitignores
+`dist/`, so a fresh clone has none). Installing from git also installs
+devDependencies (TypeScript) so the build can run; pass `--omit=dev` and you'll
+be asked to run `npm run build` yourself later.
+
+```sh
+# Add qmdx to an existing project as a dependency from git
+npm install Will-gabia/qmdx
+# then use the CLI via the local binary
+npx qmdx --version
+# or the exported SDK
+import { createStore } from 'qmdx'
 ```
 
 ### Development
 
 ```sh
-git clone https://github.com/tobi/qmd
-cd qmd
-npm install
-npm link
+git clone https://github.com/Will-gabia/qmdx
+cd qmdx
+npm install          # also builds dist/ via the prepare hook and installs git hooks
+# Rebuild after editing TypeScript sources:
+npm run build
+npm link            # expose `qmdx` globally, points at this checkout
 ```
 
 ## Usage
@@ -567,54 +651,54 @@ npm link
 
 ```sh
 # Create a collection from current directory
-qmd collection add . --name myproject
+qmdx collection add . --name myproject
 
 # Create a collection with explicit path and custom glob mask
-qmd collection add ~/Documents/notes --name notes --mask "**/*.md"
+qmdx collection add ~/Documents/notes --name notes --mask "**/*.md"
 
 # List all collections
-qmd collection list
+qmdx collection list
 
 # Remove a collection
-qmd collection remove myproject
+qmdx collection remove myproject
 
 # Rename a collection
-qmd collection rename myproject my-project
+qmdx collection rename myproject my-project
 
 # List files in a collection
-qmd ls notes
-qmd ls notes/subfolder
+qmdx ls notes
+qmdx ls notes/subfolder
 
 # Show collection details (path, glob mask, include status, context count)
-qmd collection show notes
+qmdx collection show notes
 
 # Include or exclude a collection from default (unscoped) queries
-qmd collection include notes
-qmd collection exclude notes
+qmdx collection include notes
+qmdx collection exclude notes
 
-# Run a command before every `qmd update` (e.g. git pull); empty arg clears it
-qmd collection update-cmd notes 'git pull --rebase'
-qmd collection update-cmd notes
+# Run a command before every `qmdx update` (e.g. git pull); empty arg clears it
+qmdx collection update-cmd notes 'git pull --rebase'
+qmdx collection update-cmd notes
 ```
 
 ### Generate Vector Embeddings
 
 ```sh
 # Embed all indexed documents (900 tokens/chunk, 15% overlap)
-qmd embed
+qmdx embed
 
 # Force re-embed everything
-qmd embed -f
+qmdx embed -f
 
 # Enable AST-aware chunking for code files (TS, JS, Python, Go, Rust)
-qmd embed --chunk-strategy auto
+qmdx embed --chunk-strategy auto
 
 # Also works with query for consistent chunk selection
-qmd query "auth flow" --chunk-strategy auto
+qmdx query "auth flow" --chunk-strategy auto
 
 # Memory control for large corpora / constrained systems
-qmd embed --max-docs-per-batch 50   # cap docs per embedding batch
-qmd embed --max-batch-mb 64         # cap batch size in MB
+qmdx embed --max-docs-per-batch 50   # cap docs per embedding batch
+qmdx embed --max-batch-mb 64         # cap batch size in MB
 ```
 
 **AST-aware chunking** (`--chunk-strategy auto`) uses tree-sitter to chunk code
@@ -624,7 +708,7 @@ codebases. Markdown and other file types always use regex-based chunking
 regardless of strategy.
 
 The default is `regex` (existing behavior). Use `--chunk-strategy auto` to
-opt in. Run `qmd status` to verify which grammars are available.
+opt in. Run `qmdx status` to verify which grammars are available.
 
 > **Note:** Tree-sitter grammars are optional dependencies. If they are not
 > installed, `--chunk-strategy auto` falls back to regex-only chunking
@@ -636,50 +720,65 @@ Context adds descriptive metadata to collections and paths, helping search under
 
 ```sh
 # Add context to a collection (using qmd:// virtual paths)
-qmd context add qmd://notes "Personal notes and ideas"
-qmd context add qmd://docs/api "API documentation"
+qmdx context add qmd://notes "Personal notes and ideas"
+qmdx context add qmd://docs/api "API documentation"
 
 # Add context from within a collection directory
-cd ~/notes && qmd context add "Personal notes and ideas"
-cd ~/notes/work && qmd context add "Work-related notes"
+cd ~/notes && qmdx context add "Personal notes and ideas"
+cd ~/notes/work && qmdx context add "Work-related notes"
 
 # Add global context (applies to all collections)
-qmd context add / "Knowledge base for my projects"
+qmdx context add / "Knowledge base for my projects"
 
 # List all contexts
-qmd context list
+qmdx context list
 
 # Remove context
-qmd context rm qmd://notes/old
+qmdx context rm qmd://notes/old
 ```
 
 ### Configuring `index.yml`
 
 The `collection` and `context` commands above all read and write a single YAML
-config file — you can also edit it directly. Everything QMD knows about your
+config file — you can also edit it directly. Everything QMDx knows about your
 collections (paths, masks, exclusions, per-collection update hooks, contexts, and
 optional model overrides) lives here. A fully-commented starter template ships as
 [`example-index.yml`](example-index.yml) in this repo.
 
-**Location:** `~/.config/qmd/index.yml` by default. The directory honors
-`XDG_CONFIG_HOME` (→ `$XDG_CONFIG_HOME/qmd/index.yml`) and `QMD_CONFIG_DIR`. A
-named index uses `{name}.yml` — `qmd --index work …` reads/writes `work.yml`.
-A **project-local** index created with `qmd init` lives at `.qmd/index.yml`
-(`.qmd/index.yaml` is also accepted) alongside a project-local `index.sqlite`,
+**Location:** `~/.config/qmdx/index.yml` by default. The directory honors
+`XDG_CONFIG_HOME` (→ `$XDG_CONFIG_HOME/qmdx/index.yml`) and `QMDX_CONFIG_DIR`. A
+named index uses `{name}.yml` — `qmdx --index work …` reads/writes `work.yml`.
+A **project-local** index created with `qmdx init` lives at `.qmdx/index.yml`
+(`.qmdx/index.yaml` is also accepted) alongside a project-local `index.sqlite`,
 so config and index stay inside the project instead of `~/.config` / `~/.cache`.
 
+**Index location precedence** (high → low): `--index-dir <dir>` / `QMDX_INDEX_DIR`
+→ `--index <name>` → project-local `.qmdx/index.yaml` → global `~/.config/qmdx`
++ `~/.cache/qmdx`. `--index-dir` places `index.yml`, `index.sqlite`, and the
+SQLite `-shm`/`-wal` sidecars all inside `<dir>`, so multiple projects can keep
+fully separate indexes. See [Multi-project index isolation](docs/PROJECT-ISOLATION.ko.md).
+
+**Shared models config:** when `--index-dir`, `--models-config <path>`, or
+`QMDX_MODELS_CONFIG` is set, the `models:` block below moves out of each
+isolated `index.yml` into a single shared `models.yml` (default
+`~/.config/qmdx/models.yml`). The GGUF model files in `~/.cache/qmdx/models` are
+already shared across indexes, so the config mirrors that. An existing
+`index.yml` `models:` block is migrated into the shared file on first run
+(non-destructive). Without any of those flags, the legacy per-`index.yml`
+`models:` behavior is unchanged.
+
 ```yaml
-# ~/.config/qmd/index.yml
+# ~/.config/qmdx/index.yml
 
 # Context applied to every collection (system-message style). Optional.
 global_context: "Knowledge base for my projects"
 
 # Terminal hyperlink template for search results. Optional.
-# Overridden by the QMD_EDITOR_URI env var. See "Editor Links" below.
+# Overridden by the QMDX_EDITOR_URI env var. See "Editor Links" below.
 editor_uri: "vscode://file{path}:{line}:{col}"
 
 # Override the default GGUF models per role. Optional — omit to use the
-# built-in defaults. `qmd init` writes this block pre-filled with the
+# built-in defaults. `qmdx init` writes this block pre-filled with the
 # resolved defaults. See "Model Configuration" for the default URIs.
 models:
   embed: "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf"
@@ -694,7 +793,7 @@ collections:
     ignore:                      # glob patterns to exclude from indexing
       - "Archive/**"
       - "**/drafts/**"
-    update: "git pull --rebase"  # bash command run before each `qmd update`
+    update: "git pull --rebase"  # bash command run before each `qmdx update`
     includeByDefault: true       # include in unscoped queries (default: true)
     context:                     # path prefix → description; longest match wins
       "/": "Personal notes and ideas"
@@ -703,26 +802,26 @@ collections:
 
 | Key | Scope | Purpose |
 |-----|-------|---------|
-| `global_context` | top-level | Context prepended for every collection. Set via `qmd context add /`. |
-| `editor_uri` (alias `editor_uri_template`) | top-level | Hyperlink template for clickable result paths; `QMD_EDITOR_URI` overrides. |
+| `global_context` | top-level | Context prepended for every collection. Set via `qmdx context add /`. |
+| `editor_uri` (alias `editor_uri_template`) | top-level | Hyperlink template for clickable result paths; `QMDX_EDITOR_URI` overrides. |
 | `models.embed` / `.rerank` / `.generate` | top-level | HuggingFace GGUF URIs (`hf:<user>/<repo>/<file>`) overriding the built-in defaults per role. |
 | `collections.<name>.path` | per-collection | Absolute directory to index. |
-| `collections.<name>.pattern` | per-collection | Glob mask. Set via `qmd collection add --mask`. Default `**/*.md`. |
-| `collections.<name>.ignore` | per-collection | Glob patterns excluded from indexing — useful to stop nested collections double-indexing. **YAML-only — no CLI command sets this.** Additive with QMD's built-in exclusions (`node_modules`, `.git`, `.cache`, `vendor`, `dist`, `build`), which you cannot un-ignore. |
-| `collections.<name>.update` | per-collection | Bash command run before `qmd update` re-indexes this collection. Set via `qmd collection update-cmd`. |
-| `collections.<name>.includeByDefault` | per-collection | Whether unscoped queries search it. Toggle with `qmd collection include`/`exclude`. Default `true`. |
-| `collections.<name>.context` | per-collection | Path-prefix → description map; the most specific (longest) matching prefix wins. Set via `qmd context add`. |
+| `collections.<name>.pattern` | per-collection | Glob mask. Set via `qmdx collection add --mask`. Default `**/*.md`. |
+| `collections.<name>.ignore` | per-collection | Glob patterns excluded from indexing — useful to stop nested collections double-indexing. **YAML-only — no CLI command sets this.** Additive with QMDx's built-in exclusions (`node_modules`, `.git`, `.cache`, `vendor`, `dist`, `build`), which you cannot un-ignore. |
+| `collections.<name>.update` | per-collection | Bash command run before `qmdx update` re-indexes this collection. Set via `qmdx collection update-cmd`. |
+| `collections.<name>.includeByDefault` | per-collection | Whether unscoped queries search it. Toggle with `qmdx collection include`/`exclude`. Default `true`. |
+| `collections.<name>.context` | per-collection | Path-prefix → description map; the most specific (longest) matching prefix wins. Set via `qmdx context add`. |
 
-> **Note:** Editing `index.yml` changes which directories and models QMD *uses*,
-> but does not re-index on its own. Run `qmd update` after changing `path`,
-> `pattern`, or `ignore`, and `qmd embed` after changing `models.embed`.
+> **Note:** Editing `index.yml` changes which directories and models QMDx *uses*,
+> but does not re-index on its own. Run `qmdx update` after changing `path`,
+> `pattern`, or `ignore`, and `qmdx embed` after changing `models.embed`.
 
 #### Automatic update commands
 
-A collection's `update` field is QMD's built-in refresh hook: when you run
-`qmd update`, each collection's `update` command runs **first**, then the
+A collection's `update` field is QMDx's built-in refresh hook: when you run
+`qmdx update`, each collection's `update` command runs **first**, then the
 collection is re-indexed. This keeps a collection in sync with an upstream source
-(a git remote, a sync script) without wrapping `qmd` yourself.
+(a git remote, a sync script) without wrapping `qmdx` yourself.
 
 ```yaml
 collections:
@@ -731,7 +830,7 @@ collections:
     update: "git pull --ff-only"
 ```
 
-    $ qmd update
+    $ qmdx update
     [1/3] wiki (**/*.md)
         Running update command: git pull --ff-only
         Already up to date.
@@ -739,13 +838,13 @@ collections:
     Indexed: 0 new, 2 updated, 340 unchanged, 0 removed
 
 The command runs via `bash -c` in the collection's own directory (its `path`), not
-your current working directory. If it exits non-zero, `qmd update` prints the
+your current working directory. If it exits non-zero, `qmdx update` prints the
 failure and **aborts the entire run** — collections after the failing one are not
 re-indexed. Set or clear it from the CLI instead of editing YAML by hand:
 
 ```sh
-qmd collection update-cmd wiki 'git pull --ff-only'   # set
-qmd collection update-cmd wiki                         # clear
+qmdx collection update-cmd wiki 'git pull --ff-only'   # set
+qmdx collection update-cmd wiki                         # clear
 ```
 
 ### Search Commands
@@ -762,13 +861,13 @@ qmd collection update-cmd wiki                         # clear
 
 ```sh
 # Full-text search (fast, keyword-based)
-qmd search "authentication flow"
+qmdx search "authentication flow"
 
 # Vector search (semantic similarity)
-qmd vsearch "how to login"
+qmdx vsearch "how to login"
 
 # Hybrid search with re-ranking (best quality)
-qmd query "user authentication"
+qmdx query "user authentication"
 ```
 
 Two aliases exist for the semantic/hybrid modes: `vector-search` (→ `vsearch`)
@@ -785,8 +884,9 @@ and `deep-search` (→ `query`).
 --full             # Show full document content
 --line-numbers     # Add line numbers to output
 --explain          # Include retrieval score traces (query, JSON/CLI output)
---index <name>     # Use named index
---intent "<text>"  # Disambiguation context (e.g. "web page load times")
+--index <name>      # Use named index
+--index-dir <dir>   # Place index.yml + index.sqlite (+-shm/-wal) in <dir>; isolates indexes per-project
+--intent "<text>"    # Disambiguation context (e.g. "web page load times")
 --no-rerank        # Skip LLM reranking (RRF scores only; faster on CPU)
 -C, --candidate-limit <n>  # Max candidates to rerank (default: 40)
 --full-path        # Emit on-disk filesystem paths instead of qmd:// URIs
@@ -796,7 +896,7 @@ and `deep-search` (→ `query`).
                    # (--json, --csv, --md, --xml, --files are legacy aliases)
 
 # Get options
-qmd get <file>[:from[:count]]  # Get document; optional start line and count
+qmdx get <file>[:from[:count]]  # Get document; optional start line and count
 -l <num>                       # Maximum lines to return
 --from <num>                   # Start line (overrides the :from suffix)
 --no-line-numbers              # Disable line numbering (on by default)
@@ -809,16 +909,16 @@ qmd get <file>[:from[:count]]  # Get document; optional start line and count
 ### Collection Filtering
 
 The `-c`/`--collection` flag filters results by collection **name** (as shown by
-`qmd collection list`). Collections are a global registry — you can search any
+`qmdx collection list`). Collections are a global registry — you can search any
 collection from any directory:
 
 ```sh
-qmd search "auth" -c notes           # single collection
-qmd search "auth" -c notes -c docs   # multiple collections (OR)
+qmdx search "auth" -c notes           # single collection
+qmdx search "auth" -c notes -c docs   # multiple collections (OR)
 ```
 
 With no `-c` flag, all default-included collections are searched. Collections
-marked excluded (`qmd collection exclude <name>`) are skipped unless named
+marked excluded (`qmdx collection exclude <name>`) are skipped unless named
 explicitly with `-c`.
 
 > **Note:** With multiple `-c` flags, results come from a global top-K pool and are
@@ -831,7 +931,7 @@ Default output is colorized CLI format (respects `NO_COLOR` env).
 
 When stdout is a TTY, result paths are emitted as clickable terminal hyperlinks (OSC 8). Clicking a path opens the file in your editor using an editor URI template.
 
-When stdout is not a TTY (for example piped to another command or redirected to a file), QMD emits plain text paths with no escape sequences.
+When stdout is not a TTY (for example piped to another command or redirected to a file), QMDx emits plain text paths with no escape sequences.
 
 TTY example:
 
@@ -855,20 +955,20 @@ Discussion about code quality and craftsmanship
 in the development process.
 ```
 
-Configure the editor link target with `QMD_EDITOR_URI` (or `editor_uri` in config):
+Configure the editor link target with `QMDX_EDITOR_URI` (or `editor_uri` in config):
 
 ```sh
 # VS Code (default)
-export QMD_EDITOR_URI="vscode://file/{path}:{line}:{col}"
+export QMDX_EDITOR_URI="vscode://file/{path}:{line}:{col}"
 
 # Cursor
-export QMD_EDITOR_URI="cursor://file/{path}:{line}:{col}"
+export QMDX_EDITOR_URI="cursor://file/{path}:{line}:{col}"
 
 # Zed
-export QMD_EDITOR_URI="zed://file/{path}:{line}:{col}"
+export QMDX_EDITOR_URI="zed://file/{path}:{line}:{col}"
 
 # Sublime Text
-export QMD_EDITOR_URI="subl://open?url=file://{path}&line={line}"
+export QMDX_EDITOR_URI="subl://open?url=file://{path}&line={line}"
 ```
 
 Template placeholders:
@@ -877,9 +977,9 @@ Template placeholders:
 - `{col}` or `{column}` 1-based column number
 
 - **Path**: Collection-relative path (e.g., `docs/guide.md`)
-- **Docid**: Short hash identifier (e.g., `#a1b2c3`) - use with `qmd get #a1b2c3`
+- **Docid**: Short hash identifier (e.g., `#a1b2c3`) - use with `qmdx get #a1b2c3`
 - **Title**: Extracted from document (first heading or filename)
-- **Context**: Path context if configured via `qmd context add`
+- **Context**: Path context if configured via `qmdx context add`
 - **Score**: Color-coded (green >70%, yellow >40%, dim otherwise)
 - **Snippet**: Context around match with query terms highlighted
 
@@ -887,19 +987,24 @@ Template placeholders:
 
 ```sh
 # Get 10 results with minimum score 0.3
-qmd query -n 10 --min-score 0.3 "API design patterns"
+qmdx query -n 10 --min-score 0.3 "API design patterns"
 
 # Output as markdown for LLM context
-qmd search --md --full "error handling"
+qmdx search --md --full "error handling"
 
 # JSON output for scripting
-qmd query --json "quarterly reports"
+qmdx query --json "quarterly reports"
 
 # Inspect how each result was scored (RRF + rerank blend)
-qmd query --json --explain "quarterly reports"
+qmdx query --json --explain "quarterly reports"
 
 # Use separate index for different knowledge base
-qmd --index work search "quarterly reports"
+qmdx --index work search "quarterly reports"
+
+# Isolate a whole index (config + sqlite) inside a directory per project;
+# models stay shared. See docs/PROJECT-ISOLATION.ko.md
+qmdx --index-dir ~/qmd-indexes/work init
+qmdx --index-dir ~/qmd-indexes/work query "quarterly reports"
 ```
 
 The `--explain` flag attaches a score breakdown to each result: the FTS/vector
@@ -910,7 +1015,7 @@ sub-query's contribution. Abbreviated:
 {
   "docid": "#6c90f0",
   "score": 0.89,
-  "file": "qmd://qmd/README.md",
+  "file": "qmd://qmdx/README.md",
   "explain": {
     "ftsScores": [0.892, 0.907],
     "vectorScores": [0.540, 0.484],
@@ -933,67 +1038,67 @@ sub-query's contribution. Abbreviated:
 
 ```sh
 # Show index status and collections with contexts
-qmd status
+qmdx status
 
 # Re-index all collections. If a collection has a configured update command
-# (e.g. `git pull`), it runs first — set one with `qmd collection update-cmd`.
-qmd update
+# (e.g. `git pull`), it runs first — set one with `qmdx collection update-cmd`.
+qmdx update
 
 # Diagnose the install (runtime, sqlite-vec, embedding fingerprints, GPU probe)
-qmd doctor
+qmdx doctor
 
 # Initialize a project-local index in the current directory
-qmd init
+qmdx init
 
 # Get document by filepath (with fuzzy matching suggestions)
-qmd get notes/meeting.md
+qmdx get notes/meeting.md
 
 # Get document by docid (from search results)
-qmd get "#abc123"
+qmdx get "#abc123"
 
 # Get document starting at line 50, max 100 lines
-qmd get notes/meeting.md:50 -l 100
+qmdx get notes/meeting.md:50 -l 100
 
 # Read 40 lines starting at line 120 via the :from:count suffix (works with docids)
-qmd get notes/meeting.md:120:40
-qmd get "#abc123:120:40"
+qmdx get notes/meeting.md:120:40
+qmdx get "#abc123:120:40"
 
 # get / multi-get are line-numbered by default; disable with --no-line-numbers
-qmd get notes/meeting.md --no-line-numbers
+qmdx get notes/meeting.md --no-line-numbers
 
 # Get multiple documents by glob pattern
-qmd multi-get "journals/2025-05*.md"
+qmdx multi-get "journals/2025-05*.md"
 
 # Get multiple documents by comma-separated list (supports docids)
-qmd multi-get "doc1.md, doc2.md, #abc123"
+qmdx multi-get "doc1.md, doc2.md, #abc123"
 
 # Limit multi-get to files under 20KB
-qmd multi-get "docs/*.md" --max-bytes 20480
+qmdx multi-get "docs/*.md" --max-bytes 20480
 
 # Output multi-get as JSON for agent processing
-qmd multi-get "docs/*.md" --json
+qmdx multi-get "docs/*.md" --json
 
 # Clean up cache and orphaned data
-qmd cleanup
+qmdx cleanup
 ```
 
 ### Benchmarking
 
-Measure search quality across all four backends with `qmd bench` and a fixture file
+Measure search quality across all four backends with `qmdx bench` and a fixture file
 of queries with known-relevant documents.
 
 **From a git checkout**, an example fixture and its test corpus ship in the repo:
 
 ```sh
 # One-time setup (indexes the repo's test corpus into its own collection)
-qmd collection add test/eval-docs --name eval-docs
-qmd embed -c eval-docs
+qmdx collection add test/eval-docs --name eval-docs
+qmdx embed -c eval-docs
 
 # Run the benchmark (table output)
-qmd bench src/bench/fixtures/example.json
+qmdx bench src/bench/fixtures/example.json
 
 # JSON output for programmatic analysis
-qmd bench src/bench/fixtures/example.json --json
+qmdx bench src/bench/fixtures/example.json --json
 ```
 
 > The example fixture (`src/bench/fixtures/example.json`) and its test corpus
@@ -1002,7 +1107,7 @@ qmd bench src/bench/fixtures/example.json --json
 > (see below) against a collection you have already indexed:
 >
 > ```sh
-> qmd bench my-fixture.json -c my-collection
+> qmdx bench my-fixture.json -c my-collection
 > ```
 
 Each query runs against four backends, reporting precision@k, recall, MRR, and F1:
@@ -1038,17 +1143,17 @@ either backend alone.
 }
 ```
 
-`expected_files` are collection-relative paths as shown by `qmd ls`. The `type`
+`expected_files` are collection-relative paths as shown by `qmdx ls`. The `type`
 field (`exact`, `semantic`, `topical`, `cross-domain`, `alias`) labels queries for
 grouping — it does not change search behavior.
 
 > **Heads-up:** if the fixture's collection isn't indexed, bench currently runs to
 > completion and reports all zeros with no warning. Verify setup with
-> `qmd ls <collection>` first.
+> `qmdx ls <collection>` first.
 
 ## Data Storage
 
-Index stored in: `~/.cache/qmd/index.sqlite`
+Index stored in: `~/.cache/qmdx/index.sqlite`
 
 ### Schema
 
@@ -1068,10 +1173,13 @@ llm_cache       -- Cached LLM responses (query expansion, rerank scores)
 |----------|---------|-------------|
 | `XDG_CACHE_HOME` | `~/.cache` | Cache directory location |
 | `XDG_CONFIG_HOME` | `~/.config` | Config directory location (where `index.yml` lives) |
-| `QMD_CONFIG_DIR` | unset | Override the config directory outright (takes precedence over `XDG_CONFIG_HOME`) |
-| `QMD_LLAMA_GPU` | `auto` | Force llama.cpp GPU backend (`metal`, `vulkan`, `cuda`) or disable GPU with `false` |
-| `QMD_FORCE_CPU` | unset | Set to `1`/`true` to force CPU mode before any CUDA/Vulkan/Metal probing. Equivalent CLI flag: `--no-gpu`. |
-| `QMD_EMBED_PARALLELISM` | automatic | Override embedding/reranking context parallelism (1-8). Windows CUDA defaults to `1` because parallel CUDA contexts can crash with `ggml-cuda.cu:98`; use Vulkan or raise this only if your driver is stable. |
+| `QMDX_CONFIG_DIR` | unset | Override the config directory outright (takes precedence over `XDG_CONFIG_HOME`) |
+| `QMDX_INDEX_DIR` | unset | Place `index.yml` + `index.sqlite` (+`-shm`/`-wal`) inside `<dir>` to isolate a project index. Flag form: `--index-dir <dir>`. |
+| `QMDX_MODELS_CONFIG` | unset | Path to a shared `models.yml` for embed/rerank/generate (used across `--index-dir` indexes). Flag form: `--models-config <path>`. Default `~/.config/qmdx/models.yml`. |
+| `INDEX_PATH` | unset | Override the SQLite index path outright (QMDx reads/writes a different database). |
+| `QMDX_LLAMA_GPU` | `auto` | Force llama.cpp GPU backend (`metal`, `vulkan`, `cuda`) or disable GPU with `false` |
+| `QMDX_FORCE_CPU` | unset | Set to `1`/`true` to force CPU mode before any CUDA/Vulkan/Metal probing. Equivalent CLI flag: `--no-gpu`. |
+| `QMDX_EMBED_PARALLELISM` | automatic | Override embedding/reranking context parallelism (1-8). Windows CUDA defaults to `1` because parallel CUDA contexts can crash with `ggml-cuda.cu:98`; use Vulkan or raise this only if your driver is stable. |
 
 ## How It Works
 
@@ -1106,7 +1214,7 @@ Document ──► Smart Chunk (~900 tokens) ──► Format each chunk ──�
 
 ### Smart Chunking
 
-Instead of cutting at hard token boundaries, QMD uses a scoring algorithm to find natural markdown break points. This keeps semantic units (sections, paragraphs, code blocks) together.
+Instead of cutting at hard token boundaries, QMDx uses a scoring algorithm to find natural markdown break points. This keeps semantic units (sections, paragraphs, code blocks) together.
 
 **Break Point Scores:**
 
@@ -1137,7 +1245,7 @@ The squared distance decay means a heading 200 tokens back (score ~30) still bea
 
 **AST-Aware Chunking (Code Files):**
 
-For supported code files, QMD also parses the source with [tree-sitter](https://tree-sitter.github.io/) and adds AST-derived break points that are merged with the regex scores above:
+For supported code files, QMDx also parses the source with [tree-sitter](https://tree-sitter.github.io/) and adds AST-derived break points that are merged with the regex scores above:
 
 | AST Node | Score | Languages |
 |----------|-------|-----------|
@@ -1198,7 +1306,7 @@ const DEFAULT_GENERATE_MODEL = "hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query
 
 Override them per-role without touching source via the `models:` block in
 `index.yml` (see [Configuring `index.yml`](#configuring-indexyml)) or the
-`QMD_EMBED_MODEL` env var. Re-run `qmd embed` after changing the embedding model.
+`QMDX_EMBED_MODEL` env var. Re-run `qmdx embed` after changing the embedding model.
 
 ### EmbeddingGemma Prompt Format
 

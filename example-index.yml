@@ -16,7 +16,7 @@ global_context: "If you see a relevant [[WikiWord]], you can search for that Wik
 
 # ─── Terminal hyperlinks (optional) ──────────────────────────────────────────
 # Template that turns result paths into clickable editor links.
-# Overridden by the QMD_EDITOR_URI env var.
+# Overridden by the QMDX_EDITOR_URI env var.
 # editor_uri: "vscode://file{path}:{line}:{col}"
 
 # ─── Model overrides (optional) ──────────────────────────────────────────────

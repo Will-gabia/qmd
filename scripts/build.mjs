@@ -20,7 +20,7 @@ function run(command, args, options = {}) {
 
 run(process.execPath, [join(root, "node_modules", "typescript", "bin", "tsc"), "-p", "tsconfig.build.json"]);
 
-const cliPath = join(root, "dist", "cli", "qmd.js");
+const cliPath = join(root, "dist", "cli", "qmdx.js");
 const tmpPath = `${cliPath}.tmp`;
 const built = readFileSync(cliPath, "utf8");
 const withoutExistingShebang = built.startsWith("#!") ? built.slice(built.indexOf("\n") + 1) : built;

@@ -90,7 +90,7 @@ async function createTestStore(): Promise<Store> {
   testConfigDir = await mkdtemp(configPrefix);
 
   // Set environment variable to use test config
-  process.env.QMD_CONFIG_DIR = testConfigDir;
+  process.env.QMDX_CONFIG_DIR = testConfigDir;
 
   // Create empty YAML config
   const emptyConfig: CollectionConfig = { collections: {} };
@@ -126,7 +126,7 @@ async function cleanupTestDb(store: Store): Promise<void> {
   }
 
   // Clear environment variable
-  delete process.env.QMD_CONFIG_DIR;
+  delete process.env.QMDX_CONFIG_DIR;
 }
 
 // Helper to insert a test document directly into the database
@@ -2958,7 +2958,7 @@ describe.skipIf(!!process.env.CI)("LlamaCpp Integration", () => {
     await cleanupTestDb(store);
   });
 
-  // Regression test for https://github.com/tobi/qmd/pull/23
+  // Regression test for two-step sqlite-vec query (see store.ts comment)
   // sqlite-vec virtual tables hang when combined with JOINs in the same query.
   // The fix uses a two-step approach: vector query first, then separate JOINs.
   test("searchVec uses two-step query to avoid sqlite-vec JOIN hang", async () => {

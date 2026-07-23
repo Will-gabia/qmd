@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+### Added
+
+- New `--index-dir <dir>` flag (and `QMDX_INDEX_DIR` env var) isolates a QMD
+  index — `index.yml` plus `index.sqlite` with its `-shm`/`-wal` sidecars —
+  inside the directory you point at, so multiple projects can keep fully
+  separate indexes without relying on `XDG_CONFIG_HOME`/`XDG_CACHE_HOME`.
+  Precedence (high → low): `--index-dir` > `--index <name>` > project-local
+  `.qmd/index.yaml` > global `~/.config/qmdx`+`~/.cache/qmdx`. The on-disk
+  model cache (`~/.cache/qmdx/models`) stays shared across all indexes, and
+  the MCP daemon's `mcp.pid`/`mcp.log` now live next to the active index when
+  `--index-dir` is set. `qmd init --index-dir <dir>` scaffolds a fresh
+  isolated index there.
+- New `--models-config <path>` flag (and `QMDX_MODELS_CONFIG` env var) splits
+  the `models:` block (embed/rerank/generate) out of `index.yml` into a
+  single shared `models.yml`, so every isolated `--index-dir` index uses one
+  global model configuration that matches the already-shared GGUF model files.
+  Default location is `~/.config/qmdx/models.yml`. When shared models mode is
+  active (`--index-dir`, `--models-config`, or `QMDX_MODELS_CONFIG`), an
+  existing `index.yml` `models:` block is migrated into the shared file on
+  first run (non-destructive), then the shared file becomes the single
+  source of truth. `qmd init --index-dir <dir>` no longer writes `models:`
+  into the per-index `index.yml`. Without any of these flags, the legacy
+  per-index `index.yml` `models:` behavior is unchanged.
+
+### Changed
+
+- Rebranded the project to **QMDx** (package `qmdx`, binary `qmdx`, MCP
+  server `qmdx`, skill `qmdx`). All user-facing strings, help text, status
+  banners, skill frontmatter, marketplace metadata, and documentation now use
+  `qmdx`/`QMDx`. Repository/homepage/bugs URLs point to
+  `github.com/Will-gabia/qmdx`. The `qmd://` URN scheme is intentionally
+  preserved (it is a runtime data format, not a brand).
+- **Environment variables renamed `QMD_*` → `QMDX_*`** (breaking for
+  existing deployments). All `QMD_*` env vars — `QMDX_INDEX_DIR`,
+  `QMDX_MODELS_CONFIG`, `QMDX_CONFIG_DIR`, `QMDX_EMBED_MODEL`,
+  `QMDX_GENERATE_MODEL`, `QMDX_RERANK_MODEL`, `QMDX_OPENAI_*`,
+  `QMDX_FORCE_CPU`, `QMDX_LLAMA_GPU`, `QMDX_SKILLS_DIR`, `QMDX_EDITOR_URI`,
+  `QMDX_METAL_KEEP_RESIDENCY`, `QMDX_DOCTOR_DEVICE_PROBE`,
+  `QMDX_WRAPPER_CAPTURE`, `QMDX_HOST`, `QMDX_SQLITE_BUSY_TIMEOUT`,
+  `QMDX_DISABLE_DARWIN_SAFE_EXIT`, and the `QMDX_EMBED_/RERANK_/EXPAND_`
+  context-size + parallelism knobs — are now prefixed `QMDX_`. This is
+  intentional: the fork is meant to run side-by-side with upstream `qmd`,
+  and the old shared `QMD_` prefix would collide. No backward-compat shims
+  are provided.
+- **CLI source file renamed `src/cli/qmd.ts` → `src/cli/qmdx.ts`** (and the
+  compiled entry `dist/cli/qmd.js` → `dist/cli/qmdx.js`). The `bin/qmdx`
+  launcher, `package.json` scripts (`qmdx`, `index`, `vector`, `search`,
+  `vsearch`, `rerank`, `inspector`), the `prepare`/`build-if-missing` hooks,
+  `scripts/package-smoke.mjs`, `flake.nix`, and all test fixtures/imports now
+  point at `qmdx.ts`/`qmdx.js`. No behavioral change; purely a path rename.
+
 ## [2.6.3] - 2026-06-24
 
 ### Added
@@ -18,13 +69,13 @@
   schema — `global_context`, `editor_uri`, the `models.embed`/`rerank`/`generate`
   overrides, and per-collection `path`/`pattern`/`ignore`/`update`/
   `includeByDefault`/`context` — with file-location rules (`XDG_CONFIG_HOME`,
-  `QMD_CONFIG_DIR`, named `{name}.yml`, project-local `.qmd/index.yml`). Every key
+  `QMDX_CONFIG_DIR`, named `{name}.yml`, project-local `.qmd/index.yml`). Every key
   is verified against `src/collections.ts` and its consumers. Documents behavior
   that previously existed only in code, where the absence of docs led contributors
   to repeatedly re-submit already-shipped model-resolution fixes (#502, #559, #564)
   and to request config that already works (#645, #678). Added
-  `XDG_CONFIG_HOME`/`QMD_CONFIG_DIR` to the environment-variable table and noted
-  the `index.yml` `models:` / `QMD_EMBED_MODEL` override path in the Model
+  `XDG_CONFIG_HOME`/`QMDX_CONFIG_DIR` to the environment-variable table and noted
+  the `index.yml` `models:` / `QMDX_EMBED_MODEL` override path in the Model
   Configuration section.
 - README: expanded the per-collection `update` field into an "Automatic update
   commands" subsection — the feature the maintainer publicly called under-documented
@@ -81,7 +132,7 @@
   resource URIs. Previously the raw `displayPath` (`collection/path`) was
   returned without the scheme prefix (#576).
 - The embed session `maxDuration` is now env-configurable via
-  `QMD_EMBED_MAX_DURATION_MS` (default: 30 min). This prevents large-corpus
+  `QMDX_EMBED_MAX_DURATION_MS` (default: 30 min). This prevents large-corpus
   embeddings from being aborted by the hardcoded 30-minute ceiling (#673).
 - `qmd query`, `qmd update`, and other commands no longer fail with
   `SQLiteError: database is locked` when multiple processes run against the
@@ -93,7 +144,7 @@
   concurrency but does not serialise concurrent writers, and `bun:sqlite`
   and `better-sqlite3` both default the timeout to 0, so the loser
   previously failed on the first DDL statement in `initializeDatabase`.
-  Override the default with `QMD_SQLITE_BUSY_TIMEOUT` (milliseconds; `0`
+  Override the default with `QMDX_SQLITE_BUSY_TIMEOUT` (milliseconds; `0`
   restores fail-fast). Two more crashes on the same concurrent-open
   path are fixed: `trigger documents_ai already exists` (the FTS sync
   triggers were dropped and recreated as separate statements on every
@@ -169,7 +220,7 @@
   mutations to libc `setenv` — so it lives in the launcher rather than in
   test-preload. Residency sets give no measurable speedup for QMD's
   short-lived CLI workflow (benchmarked on M3 Pro). Opt back in with
-  `QMD_METAL_KEEP_RESIDENCY=1` for long-lived qmd processes (e.g. the MCP
+  `QMDX_METAL_KEEP_RESIDENCY=1` for long-lived qmd processes (e.g. the MCP
   daemon may benefit on hot reload) or to triage the upstream fix.
   `qmd doctor` reports the mitigation state. Minimal reproduction:
   `scripts/repro-metal-rsets-crash.mjs`.
@@ -212,15 +263,15 @@
 - Doctor: explicitly warn when `content_vectors` contains multiple non-empty embedding fingerprint names, with the per-fingerprint document/chunk breakdown.
 - Embed: make the TTY progress line label byte-based input progress explicitly, show embedded chunks as a count, and shorten the displayed model name.
 - Embed: retain per-chunk failure details, retry failed chunks after later successful embeds and again when no other chunks remain, clear recovered errors, and cap retries to avoid endless loops.
-- Tests: expand the container smoke harness to cover npm-global, npx-style, and Bun-global install scenarios, always checking auto and `QMD_FORCE_CPU=1` doctor modes, with opt-in tiny `qmd embed` and GPU probe runs for supported container runtimes.
+- Tests: expand the container smoke harness to cover npm-global, npx-style, and Bun-global install scenarios, always checking auto and `QMDX_FORCE_CPU=1` doctor modes, with opt-in tiny `qmd embed` and GPU probe runs for supported container runtimes.
 - Embedding: fingerprint vector metadata using the active embedding model and formatting/chunking parameters so stale vectors are treated as pending after search semantics change. Legacy `content_vectors` columns are migrated lazily on first vector-health/write use to preserve fast QMD startup.
 
 - Skill: expand the packaged QMD skill with retrieval-first workflows, structured query examples, wiki/source collection guidance, and safe fallbacks when model-backed search is unavailable.
 - Tests: make `bun run test` execute the local unit suite under both Node/Vitest and Bun (`test:node` + `test:bun`) so runtime-specific regressions are caught before CI.
 - Model config: centralize embedding/rerank/generation model resolution so `qmd embed`, `status`, `query`, `vsearch`, `pull`, SDK vector search, and `bench` use the same active `.qmd/index.yaml` model hints and environment fallbacks.
 - GPU/status: `qmd status` now uses the same embedding model identity as `qmd embed` when computing pending embeddings, so URI-backed embeddings are not incorrectly reported as pending under the legacy `embeddinggemma` alias.
-- GPU status: `qmd status` now always shows GPU mode/configuration without unsafe native probing, and CPU-fallback warnings point to `QMD_STATUS_DEVICE_PROBE=1 qmd status` for an actual backend probe. The no-GPU warning is emitted once per process instead of once per LLM instance during benchmarks.
-- GPU: add `QMD_FORCE_CPU=1` / `--no-gpu` to bypass CUDA/Vulkan/Metal probing entirely, and route native llama.cpp stdout noise to stderr so JSON output stays parseable during search/query commands.
+- GPU status: `qmd status` now always shows GPU mode/configuration without unsafe native probing, and CPU-fallback warnings point to `QMDX_STATUS_DEVICE_PROBE=1 qmd status` for an actual backend probe. The no-GPU warning is emitted once per process instead of once per LLM instance during benchmarks.
+- GPU: add `QMDX_FORCE_CPU=1` / `--no-gpu` to bypass CUDA/Vulkan/Metal probing entirely, and route native llama.cpp stdout noise to stderr so JSON output stays parseable during search/query commands.
 - Snippet line numbers: `qmd_query` (MCP), HTTP `/query`, and `qmd query`
   (CLI JSON output and snippet headers) now return absolute source-file
   line numbers instead of chunk-local ones, so the `line` field can be
@@ -245,18 +296,18 @@
 - Hybrid search: weight RRF lists by query type so original FTS and original vector evidence get the intended 2x boost, instead of accidentally boosting the first lexical expansion. #591
 - MCP: seed llama.cpp/GGML quiet env vars before launching `qmd mcp` so native logs cannot pollute stdio JSON-RPC framing. #593
 - CLI: remove CommonJS `require()` calls from ESM index path normalization so `qmd --index <path>` no longer crashes with `ERR_AMBIGUOUS_MODULE_SYNTAX` on Node 22+. #634
-- Windows CUDA: serialize llama.cpp embedding/reranking contexts by default to avoid intermittent `ggml-cuda.cu:98` crashes in `qmd query`; set `QMD_EMBED_PARALLELISM` to opt back into parallel contexts if your driver is stable. #519
+- Windows CUDA: serialize llama.cpp embedding/reranking contexts by default to avoid intermittent `ggml-cuda.cu:98` crashes in `qmd query`; set `QMDX_EMBED_PARALLELISM` to opt back into parallel contexts if your driver is stable. #519
 - MCP: make `qmd mcp --index <name>` use the selected index for both foreground and daemon HTTP servers instead of falling back to the default store. #343
-- Embedding: respect `QMD_EMBED_MODEL` consistently for vector indexing and vector-backed search, with default-model fallback when unset.
+- Embedding: respect `QMDX_EMBED_MODEL` consistently for vector indexing and vector-backed search, with default-model fallback when unset.
 - Config: use one home-directory resolver for YAML config and the default SQLite cache path, avoiding Windows CLI/MCP split-brain when `HOME` is unset.
-- GPU: respect explicit `QMD_LLAMA_GPU=metal|vulkan|cuda` backend overrides instead of always using auto GPU selection. #529
+- GPU: respect explicit `QMDX_LLAMA_GPU=metal|vulkan|cuda` backend overrides instead of always using auto GPU selection. #529
 - Fix: preserve original filename case in `handelize()`. The previous
   `.toLowerCase()` call made indexed paths unreachable on case-sensitive
   filesystems (Linux). `qmd update` automatically migrates legacy
   lowercase paths without re-embedding.
 - CLI: make `qmd status` skip native `node-llama-cpp` device probing by
   default so status stays safe on machines with broken or unsupported GPU
-  drivers. Set `QMD_STATUS_DEVICE_PROBE=1` to opt in.
+  drivers. Set `QMDX_STATUS_DEVICE_PROBE=1` to opt in.
 - CLI: lazy-load `node-llama-cpp` so lightweight commands such as
   `qmd status` do not import native ML dependencies or trigger llama.cpp
   builds on ARM/no-GPU machines. #491
@@ -293,13 +344,13 @@ embedding stability, BM25 accuracy, and cross-platform launcher issues.
   the eval-docs test collection. #470 (thanks @jmilinovich)
 - `models:` section in `index.yml` lets you configure `embed`, `rerank`,
   and `generate` model URIs per collection. Resolution order is
-  config > env var (`QMD_EMBED_MODEL`, `QMD_RERANK_MODEL`,
-  `QMD_GENERATE_MODEL`) > built-in default. #502
+  config > env var (`QMDX_EMBED_MODEL`, `QMDX_RERANK_MODEL`,
+  `QMDX_GENERATE_MODEL`) > built-in default. #502
   (thanks @JohnRichardEnders)
 - CLI search output now emits clickable OSC 8 terminal hyperlinks when
   stdout is a TTY. Links resolve `qmd://` paths to absolute filesystem
   paths and open in editors via URI templates (default:
-  `vscode://file/{path}:{line}:{col}`). Configure with `QMD_EDITOR_URI`
+  `vscode://file/{path}:{line}:{col}`). Configure with `QMDX_EDITOR_URI`
   or `editor_uri` in the YAML config. #508 (thanks @danmackinlay)
 - `--no-rerank` flag skips the reranking step in `qmd query` — useful
   when you want fast results or don't have a GPU. Also exposed as
@@ -317,7 +368,7 @@ embedding stability, BM25 accuracy, and cross-platform launcher issues.
   crash, and bound memory usage during batch embedding. #393
   (thanks @lskun), #395 (thanks @ProgramCaiCai)
 - Embedding: set explicit embed context size (default 2048, configurable
-  via `QMD_EMBED_CONTEXT_SIZE`) instead of using the model's full
+  via `QMDX_EMBED_CONTEXT_SIZE`) instead of using the model's full
   window. #500
 - Embedding: error on dimension mismatch instead of silently rebuilding
   the vec0 table. #501
@@ -334,7 +385,7 @@ embedding stability, BM25 accuracy, and cross-platform launcher issues.
 - BM25: use CTE in `searchFTS` to prevent query planner regression with
   collection filter.
 - Reranker: increase default context size 2048→4096 and make
-  configurable via `QMD_RERANK_CONTEXT_SIZE`. Fix template overhead
+  configurable via `QMDX_RERANK_CONTEXT_SIZE`. Fix template overhead
   underestimate 200→512. #453 (thanks @builderjarvis)
 - GPU: catch initialization failures and fall back to CPU instead of
   crashing.
@@ -407,7 +458,7 @@ for bun installs.
 
 ## [1.1.6] - 2026-03-09
 
-QMD can now be used as a library. `import { createStore } from '@tobilu/qmd'`
+QMDx can now be used as a library. `import { createStore } from 'qmdx'`
 gives you the full search and indexing API — hybrid query, BM25, structured
 search, collection/context management — without shelling out to the CLI.
 
@@ -418,7 +469,7 @@ search, collection/context management — without shelling out to the CLI.
   `multiGet()`, and collection/context management methods. Supports inline
   config (no files needed) or a YAML config path.
 - **Package exports**: `package.json` now declares `main`, `types`, and
-  `exports` so bundlers and TypeScript resolve `@tobilu/qmd` correctly.
+  `exports` so bundlers and TypeScript resolve `qmdx` correctly.
 
 ## [1.1.5] - 2026-03-07
 
@@ -470,10 +521,10 @@ exhaustion.
   (thanks @vyalamar)
 - **Collection ignore patterns**: `ignore: ["Sessions/**", "*.tmp"]` in
   collection config to exclude files from indexing. #304 (thanks @sebkouba)
-- **Multilingual embeddings**: `QMD_EMBED_MODEL` env var lets you swap in
+- **Multilingual embeddings**: `QMDX_EMBED_MODEL` env var lets you swap in
   models like Qwen3-Embedding for non-English collections. #273 (thanks
   @daocoding)
-- **Configurable expansion context**: `QMD_EXPAND_CONTEXT_SIZE` env var
+- **Configurable expansion context**: `QMDX_EXPAND_CONTEXT_SIZE` env var
   (default 2048) — previously used the model's full 40960-token window,
   wasting VRAM. #313 (thanks @0xble)
 - **`candidateLimit` exposed**: `-C` / `--candidate-limit` flag and MCP
@@ -636,7 +687,7 @@ through parallel GPU contexts. GPU auto-detection replaces the unreliable
 
 ## [0.9.0] - 2026-02-15
 
-First published release on npm as `@tobilu/qmd`. MCP HTTP transport with
+First published release on npm as `qmdx`. MCP HTTP transport with
 daemon mode cuts warm query latency from ~16s to ~10s by keeping models
 loaded between requests.
 
@@ -869,6 +920,6 @@ notes, journals, and meeting transcripts.
 - CLI: `qmd add`, `qmd embed`, `qmd search`, `qmd vsearch`, `qmd query`,
   `qmd get`. ~1800 lines of TypeScript in a single `qmd.ts` file.
 
-[Unreleased]: https://github.com/tobi/qmd/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/tobi/qmd/releases/tag/v1.0.0
-[0.9.0]: https://github.com/tobi/qmd/compare/v0.8.0...v0.9.0
+[Unreleased]: https://github.com/Will-gabia/qmdx/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Will-gabia/qmdx/releases/tag/v1.0.0
+[0.9.0]: https://github.com/Will-gabia/qmdx/compare/v0.8.0...v0.9.0

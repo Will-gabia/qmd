@@ -55,9 +55,9 @@
  * Refs:
  *   https://github.com/ggml-org/llama.cpp/issues/22593  (root-cause analysis)
  *   https://github.com/ggml-org/llama.cpp/pull/22595    (one-line fix, open)
- *   https://github.com/tobi/qmd/issues/368              (downstream report)
- *   https://github.com/tobi/qmd/issues/674              (downstream, current)
- *   https://github.com/tobi/qmd/pull/600                (downstream workaround PR)
+ *   https://github.com/Will-gabia/qmdx/issues/368              (downstream report)
+ *   https://github.com/Will-gabia/qmdx/issues/674              (downstream, current)
+ *   https://github.com/Will-gabia/qmdx/pull/600                (downstream workaround PR)
  */
 
 import { existsSync } from "node:fs";

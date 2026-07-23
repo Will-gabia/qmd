@@ -48,18 +48,18 @@ describe("package grammar distribution", () => {
     expect(pkg.files, "published package files").toContain("scripts/package-smoke.mjs");
     expect(pkg.files, "published package files").toContain("scripts/test-all.mjs");
     expect(pkg.files, "published package files").toContain("skills/");
-    const qmdSkill = readFileSync(new URL("skills/qmd/SKILL.md", root), "utf8");
-    expect(qmdSkill).toContain("# QMD - Query Markdown Documents");
+    const qmdSkill = readFileSync(new URL("skills/qmdx/SKILL.md", root), "utf8");
+    expect(qmdSkill).toContain("# QMDx - Query Markdown Documents");
     expect(qmdSkill).toContain("## How search works");
     expect(qmdSkill).toContain("## MCP Tool: `query`");
     expect(qmdSkill).not.toContain("This file is a discovery stub");
 
     const firstSixtyLines = qmdSkill.split(/\r?\n/).slice(0, 60).join("\n");
     expect(firstSixtyLines).toContain("Search for candidate documents");
-    expect(firstSixtyLines).toContain("qmd search");
-    expect(firstSixtyLines).toContain('qmd multi-get "#abc123,#def432"');
+    expect(firstSixtyLines).toContain("qmdx search");
+    expect(firstSixtyLines).toContain('qmdx multi-get "#abc123,#def432"');
     expect(firstSixtyLines).toContain("Retrieved:");
-    expect(firstSixtyLines).toContain("qmd query");
+    expect(firstSixtyLines).toContain("qmdx query");
     // The skill must teach structured, self-authored queries near the top.
     expect(firstSixtyLines).toContain("Default to structured");
 

@@ -170,7 +170,7 @@ async function buildInstructions(store: QMDStore): Promise<string> {
  */
 async function createMcpServer(store: QMDStore): Promise<McpServer> {
   const server = new McpServer(
-    { name: "qmd", version: getPackageVersion() },
+    { name: "qmdx", version: getPackageVersion() },
     { instructions: await buildInstructions(store) },
   );
 
@@ -610,7 +610,7 @@ export type HttpServerHandle = {
 
 /**
  * Start MCP server over Streamable HTTP (JSON responses, no SSE).
- * Binds to `options.host` (default "localhost", overridable via the QMD_HOST
+ * Binds to `options.host` (default "localhost", overridable via the QMDX_HOST
  * env var) — set "0.0.0.0" to accept connections from other hosts, e.g. a
  * container liveness probe. Returns a handle for shutdown and port discovery.
  */
@@ -868,7 +868,7 @@ export async function startMcpHttpServer(
     }
   });
 
-  const host = options.host ?? process.env.QMD_HOST ?? "localhost";
+  const host = options.host ?? process.env.QMDX_HOST ?? "localhost";
   await new Promise<void>((resolve, reject) => {
     httpServer.on("error", reject);
     httpServer.listen(port, host, () => resolve());

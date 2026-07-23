@@ -72,6 +72,14 @@ export async function withNativeStdoutRedirectedToStderr<T>(fn: () => Promise<T>
 
 import { homedir } from "os";
 import { join } from "path";
+import { appCacheDir } from "./paths.js";
+import { isOpenAIEmbedModel, openaiEmbed, resolveOpenAIEmbedConfig } from "./openai-embed.js";
+import {
+  isOpenAIChatModel,
+  resolveOpenAIChatConfig,
+  openaiChatComplete,
+  buildExpandQueryPrompt,
+} from "./openai-chat.js";
 import { existsSync, mkdirSync, statSync, unlinkSync, readdirSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from "fs";
 
 // =============================================================================
@@ -86,6 +94,9 @@ export function isQwen3EmbeddingModel(modelUri: string): boolean {
   return /qwen.*embed/i.test(modelUri) || /embed.*qwen/i.test(modelUri);
 }
 
+/** Format helpers branch on the active model URI. OpenAI-compatible models
+ *  (openai: scheme) use raw text — bge-m3 and similar don't take instruction prefixes. */
+
 /**
  * Format a query for embedding.
  * Uses nomic-style task prefix format for embeddinggemma (default).
@@ -93,6 +104,9 @@ export function isQwen3EmbeddingModel(modelUri: string): boolean {
  */
 export function formatQueryForEmbedding(query: string, modelUri?: string): string {
   const uri = modelUri ?? resolveEmbedModel();
+  if (isOpenAIEmbedModel(uri)) {
+    return query;
+  }
   if (isQwen3EmbeddingModel(uri)) {
     return `Instruct: Retrieve relevant documents for the given query\nQuery: ${query}`;
   }
@@ -106,6 +120,10 @@ export function formatQueryForEmbedding(query: string, modelUri?: string): strin
  */
 export function formatDocForEmbedding(text: string, title?: string, modelUri?: string): string {
   const uri = modelUri ?? resolveEmbedModel();
+  if (isOpenAIEmbedModel(uri)) {
+    // OpenAI-compatible models (bge-m3 etc.): encode raw text; prepend title when present
+    return title ? `${title}\n${text}` : text;
+  }
   if (isQwen3EmbeddingModel(uri)) {
     // Qwen3-Embedding: documents are raw text, no task prefix
     return title ? `${title}\n${text}` : text;
@@ -248,7 +266,7 @@ export type RerankDocument = {
 
 // HuggingFace model URIs for node-llama-cpp
 // Format: hf:<user>/<repo>/<file>
-// Override via QMD_EMBED_MODEL env var (e.g. hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf)
+// Override via QMDX_EMBED_MODEL env var (e.g. hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf)
 const DEFAULT_EMBED_MODEL = "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf";
 const DEFAULT_RERANK_MODEL = "hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf";
 // const DEFAULT_GENERATE_MODEL = "hf:ggml-org/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf";
@@ -271,15 +289,30 @@ export type ModelResolutionConfig = {
 };
 
 export function resolveEmbedModel(config?: ModelResolutionConfig): string {
-  return config?.embed || process.env.QMD_EMBED_MODEL || DEFAULT_EMBED_MODEL;
+  return config?.embed || process.env.QMDX_EMBED_MODEL || DEFAULT_EMBED_MODEL;
 }
 
 export function resolveGenerateModel(config?: ModelResolutionConfig): string {
-  return config?.generate || process.env.QMD_GENERATE_MODEL || DEFAULT_GENERATE_MODEL;
+  return config?.generate || process.env.QMDX_GENERATE_MODEL || DEFAULT_GENERATE_MODEL;
+}
+
+/** Sentinel values that disable reranking entirely. When the resolved rerank
+ *  model is one of these (e.g. QMDX_RERANK_MODEL=none), the query pipeline
+ *  skips the local reranker and returns RRF-only scores, so users don't have
+ *  to pass --no-rerank on every invocation and no GGUF is downloaded. */
+const RERANK_DISABLED_SENTINELS = new Set(["none", "disabled", "off", "false", "", "no"]);
+
+/** True when a resolved rerank model URI disables reranking. */
+export function isRerankDisabled(rerankModelUri: string | undefined | null): boolean {
+  if (!rerankModelUri) return true;
+  return RERANK_DISABLED_SENTINELS.has(rerankModelUri.trim().toLowerCase());
 }
 
 export function resolveRerankModel(config?: ModelResolutionConfig): string {
-  return config?.rerank || process.env.QMD_RERANK_MODEL || DEFAULT_RERANK_MODEL;
+  const raw = config?.rerank || process.env.QMDX_RERANK_MODEL || DEFAULT_RERANK_MODEL;
+  // Normalize the disabled sentinel to an empty string so downstream code
+  // (LlamaCpp constructor, status display) sees no rerank model configured.
+  return isRerankDisabled(raw) ? "" : raw;
 }
 
 export function resolveModels(config?: ModelResolutionConfig): Required<ModelResolutionConfig> {
@@ -291,9 +324,7 @@ export function resolveModels(config?: ModelResolutionConfig): Required<ModelRes
 }
 
 // Local model cache directory
-const MODEL_CACHE_DIR = process.env.XDG_CACHE_HOME
-  ? join(process.env.XDG_CACHE_HOME, "qmd", "models")
-  : join(homedir(), ".cache", "qmd", "models");
+const MODEL_CACHE_DIR = join(appCacheDir(), "models");
 export const DEFAULT_MODEL_CACHE_DIR = MODEL_CACHE_DIR;
 
 export type PullResult = {
@@ -438,7 +469,7 @@ function validateGgufFile(filePath: string, modelUri: string): void {
       `To fix this, either:\n` +
       `  1. Try a HuggingFace mirror:  HF_ENDPOINT=https://hf-mirror.com qmd embed\n` +
       `  2. Download the model manually and set the env var, e.g.:\n` +
-      `       QMD_EMBED_MODEL=/path/to/model.gguf qmd embed\n\n` +
+      `       QMDX_EMBED_MODEL=/path/to/model.gguf qmd embed\n\n` +
       `Note: 'qmd search' works without any model downloads.`
     );
   }
@@ -563,7 +594,7 @@ export type LlamaCppConfig = {
   modelCacheDir?: string;
   /**
    * Context size used for query expansion generation contexts.
-   * Default: 2048. Can also be set via QMD_EXPAND_CONTEXT_SIZE.
+   * Default: 2048. Can also be set via QMDX_EXPAND_CONTEXT_SIZE.
    */
   expandContextSize?: number;
   /**
@@ -599,13 +630,13 @@ type ParallelismOptions = {
   envValue?: string;
 };
 
-export function resolveParallelismOverride(envValue = process.env.QMD_EMBED_PARALLELISM): number | undefined {
+export function resolveParallelismOverride(envValue = process.env.QMDX_EMBED_PARALLELISM): number | undefined {
   const normalized = envValue?.trim() ?? "";
   if (!normalized) return undefined;
 
   const parsed = Number(normalized);
   if (!Number.isInteger(parsed) || parsed < 1) {
-    process.stderr.write(`QMD Warning: invalid QMD_EMBED_PARALLELISM="${envValue}", using automatic parallelism.\n`);
+    process.stderr.write(`QMD Warning: invalid QMDX_EMBED_PARALLELISM="${envValue}", using automatic parallelism.\n`);
     return undefined;
   }
 
@@ -627,8 +658,8 @@ export function resolveSafeParallelism(options: ParallelismOptions): number {
 }
 
 export function resolveLlamaGpuMode(
-  envValue = process.env.QMD_LLAMA_GPU,
-  forceCpuValue = process.env.QMD_FORCE_CPU
+  envValue = process.env.QMDX_LLAMA_GPU,
+  forceCpuValue = process.env.QMDX_FORCE_CPU
 ): LlamaGpuMode {
   const forceCpu = forceCpuValue?.trim().toLowerCase() ?? "";
   if (forceCpu && !["false", "off", "none", "disable", "disabled", "0"].includes(forceCpu)) {
@@ -640,7 +671,7 @@ export function resolveLlamaGpuMode(
   if (["false", "off", "none", "disable", "disabled", "0"].includes(normalized)) return false;
   if (normalized === "metal" || normalized === "vulkan" || normalized === "cuda") return normalized;
 
-  process.stderr.write(`QMD Warning: invalid QMD_LLAMA_GPU="${envValue}", using auto GPU selection.\n`);
+  process.stderr.write(`QMD Warning: invalid QMDX_LLAMA_GPU="${envValue}", using auto GPU selection.\n`);
   return "auto";
 }
 
@@ -669,13 +700,13 @@ function resolveExpandContextSize(configValue?: number): number {
     return configValue;
   }
 
-  const envValue = process.env.QMD_EXPAND_CONTEXT_SIZE?.trim();
+  const envValue = process.env.QMDX_EXPAND_CONTEXT_SIZE?.trim();
   if (!envValue) return DEFAULT_EXPAND_CONTEXT_SIZE;
 
   const parsed = Number.parseInt(envValue, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     process.stderr.write(
-      `QMD Warning: invalid QMD_EXPAND_CONTEXT_SIZE="${envValue}", using default ${DEFAULT_EXPAND_CONTEXT_SIZE}.\n`
+      `QMD Warning: invalid QMDX_EXPAND_CONTEXT_SIZE="${envValue}", using default ${DEFAULT_EXPAND_CONTEXT_SIZE}.\n`
     );
     return DEFAULT_EXPAND_CONTEXT_SIZE;
   }
@@ -909,7 +940,7 @@ export class LlamaCpp implements LLM {
         llama = await loadCpuCompatibleLlama();
       } else if (failedGpuInitModes.has(gpuMode)) {
         process.stderr.write(
-          `QMD Warning: skipping previously failed GPU init${gpuMode === "auto" ? "" : ` for QMD_LLAMA_GPU=${gpuMode}`}, using CPU.\n`
+          `QMD Warning: skipping previously failed GPU init${gpuMode === "auto" ? "" : ` for QMDX_LLAMA_GPU=${gpuMode}`}, using CPU.\n`
         );
         llama = await loadCpuCompatibleLlama();
       } else {
@@ -945,7 +976,7 @@ export class LlamaCpp implements LLM {
           // expensive native build/probe attempts in this process.
           failedGpuInitModes.add(gpuMode);
           process.stderr.write(
-            `QMD Warning: GPU init failed${gpuMode === "auto" ? "" : ` for QMD_LLAMA_GPU=${gpuMode}`} (${err instanceof Error ? err.message : String(err)}), falling back to CPU.\n`
+            `QMD Warning: GPU init failed${gpuMode === "auto" ? "" : ` for QMDX_LLAMA_GPU=${gpuMode}`} (${err instanceof Error ? err.message : String(err)}), falling back to CPU.\n`
           );
           llama = await loadCpuCompatibleLlama();
         }
@@ -1181,14 +1212,14 @@ export class LlamaCpp implements LLM {
   // context size" errors even after truncation because the overhead estimate
   // was insufficient.  4096 comfortably fits the largest real-world chunks
   // while staying well below the 40 960-token auto size.
-  // Override with QMD_RERANK_CONTEXT_SIZE env var if you need more headroom.
+  // Override with QMDX_RERANK_CONTEXT_SIZE env var if you need more headroom.
   private static readonly RERANK_CONTEXT_SIZE: number = (() => {
-    const v = parseInt(process.env.QMD_RERANK_CONTEXT_SIZE ?? "", 10);
+    const v = parseInt(process.env.QMDX_RERANK_CONTEXT_SIZE ?? "", 10);
     return Number.isFinite(v) && v > 0 ? v : 4096;
   })();
 
   private static readonly EMBED_CONTEXT_SIZE: number = (() => {
-    const v = parseInt(process.env.QMD_EMBED_CONTEXT_SIZE ?? "", 10);
+    const v = parseInt(process.env.QMDX_EMBED_CONTEXT_SIZE ?? "", 10);
     return Number.isFinite(v) && v > 0 ? v : 2048;
   })();
   private async ensureRerankContexts(): Promise<Awaited<ReturnType<LlamaModel["createRankingContext"]>>[]> {
@@ -1232,6 +1263,13 @@ export class LlamaCpp implements LLM {
    * Returns tokenizer tokens (opaque type from node-llama-cpp)
    */
   async tokenize(text: string): Promise<readonly LlamaToken[]> {
+    if (isOpenAIEmbedModel(this.embedModelUri)) {
+      // OpenAI-compatible providers have no local tokenizer. Approximate token
+      // count (1 token ~= 4 chars) so chunking still respects context-size
+      // limits. The pseudo-tokens are never round-tripped via detokenize()
+      // except on the pathological fallback path (see detokenize below).
+      return new Array(Math.ceil(text.length / 4)) as unknown as readonly LlamaToken[];
+    }
     await this.ensureEmbedContext();  // Ensure model is loaded
     if (!this.embedModel) {
       throw new Error("Embed model not loaded");
@@ -1251,6 +1289,13 @@ export class LlamaCpp implements LLM {
    * Detokenize token IDs back to text
    */
   async detokenize(tokens: readonly LlamaToken[]): Promise<string> {
+    if (isOpenAIEmbedModel(this.embedModelUri)) {
+      // OpenAI-compatible providers have no local tokenizer; pseudo-tokens
+      // from tokenize() cannot be decoded. This path is only reached on the
+      // pathological single-line fallback in the chunker, which normal
+      // markdown (with whitespace) does not hit.
+      return "";
+    }
     await this.ensureEmbedContext();
     if (!this.embedModel) {
       throw new Error("Embed model not loaded");
@@ -1299,6 +1344,12 @@ export class LlamaCpp implements LLM {
     this.touchActivity();
 
     try {
+      if (isOpenAIEmbedModel(this.embedModelUri)) {
+        const cfg = resolveOpenAIEmbedConfig(this.embedModelUri);
+        const results = await openaiEmbed([text], cfg);
+        const r = results[0];
+        return r ? { embedding: r.embedding, model: options.model ?? this.embedModelUri } : null;
+      }
       const context = await this.ensureEmbedContext();
 
       // Guard: truncate text that exceeds model context window to prevent GGML crash
@@ -1331,6 +1382,11 @@ export class LlamaCpp implements LLM {
     if (texts.length === 0) return [];
 
     try {
+      if (isOpenAIEmbedModel(this.embedModelUri)) {
+        const cfg = resolveOpenAIEmbedConfig(this.embedModelUri);
+        const results = await openaiEmbed(texts, cfg);
+        return results.map(r => r ? { embedding: r.embedding, model: options.model ?? this.embedModelUri } : null);
+      }
       const contexts = await this.ensureEmbedContexts();
       const n = contexts.length;
 
@@ -1456,13 +1512,36 @@ export class LlamaCpp implements LLM {
     // Ping activity at start to keep models alive during this operation
     this.touchActivity();
 
+    const includeLexical = options.includeLexical ?? true;
+    const intent = options.intent;
+
+    // OpenAI-compatible chat provider: no local model load, no grammar.
+    // Reasoning models (e.g. minimax) emit chain-of-thought in
+    // reasoning_content; openaiChatComplete reads only `content`, so we need
+    // a generous max_tokens (default 2000) to let the answer fit.
+    if (isOpenAIChatModel(this.generateModelUri)) {
+      try {
+        const cfg = resolveOpenAIChatConfig(this.generateModelUri);
+        const maxTokens = parseInt(process.env.QMDX_OPENAI_CHAT_MAX_TOKENS ?? "2000", 10) || 2000;
+        const content = await openaiChatComplete(cfg, {
+          messages: buildExpandQueryPrompt(query, intent),
+          maxTokens,
+          temperature: 0.7,
+        });
+        return parseExpandedQueryLines(content, query, includeLexical);
+      } catch (error) {
+        console.error("OpenAI query expansion failed:", error);
+        const fallback: Queryable[] = [{ type: 'vec', text: query }];
+        if (includeLexical) fallback.unshift({ type: 'lex', text: query });
+        return fallback;
+      }
+    }
+
     const llama = await this.ensureLlama();
     await this.ensureGenerateModel();
 
-    const includeLexical = options.includeLexical ?? true;
     const context = options.context;
 
-    const intent = options.intent;
     const prompt = intent
       ? `/no_think Expand this search query: ${query}\nQuery intent: ${intent}`
       : `/no_think Expand this search query: ${query}`;
@@ -1504,36 +1583,7 @@ export class LlamaCpp implements LLM {
         },
       });
 
-      const lines = result.trim().split("\n");
-      const queryLower = query.toLowerCase();
-      const queryTerms = queryLower.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
-
-      const hasQueryTerm = (text: string): boolean => {
-        const lower = text.toLowerCase();
-        if (queryTerms.length === 0) return true;
-        return queryTerms.some(term => lower.includes(term));
-      };
-
-      const queryables: Queryable[] = lines.map(line => {
-        const colonIdx = line.indexOf(":");
-        if (colonIdx === -1) return null;
-        const type = line.slice(0, colonIdx).trim();
-        if (type !== 'lex' && type !== 'vec' && type !== 'hyde') return null;
-        const text = line.slice(colonIdx + 1).trim();
-        if (!hasQueryTerm(text)) return null;
-        return { type: type as QueryType, text };
-      }).filter((q): q is Queryable => q !== null);
-
-      // Filter out lex entries if not requested
-      const filtered = includeLexical ? queryables : queryables.filter(q => q.type !== 'lex');
-      if (filtered.length > 0) return filtered;
-
-      const fallback: Queryable[] = [
-        { type: 'hyde', text: `Information about ${query}` },
-        { type: 'lex', text: query },
-        { type: 'vec', text: query },
-      ];
-      return includeLexical ? fallback : fallback.filter(q => q.type !== 'lex');
+      return parseExpandedQueryLines(result, query, includeLexical);
     } catch (error) {
       console.error("Structured query expansion failed:", error);
       // Fallback to original query
@@ -1738,6 +1788,49 @@ export class LlamaCpp implements LLM {
  * Manages LLM session lifecycle with reference counting.
  * Coordinates with LlamaCpp idle timeout to prevent disposal during active sessions.
  */
+/**
+ * Parse lex/vec/hyde expansion lines from an LLM response.
+ *
+ * Shared by the local llama.cpp path (grammar-constrained output) and the
+ * OpenAI-compatible chat path (prose-instructed output). Keeps one parsing
+ * contract so the two providers are interchangeable.
+ */
+export function parseExpandedQueryLines(
+  resultText: string,
+  query: string,
+  includeLexical: boolean
+): Queryable[] {
+  const lines = resultText.trim().split("\n");
+  const queryLower = query.toLowerCase();
+  const queryTerms = queryLower.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+
+  const hasQueryTerm = (text: string): boolean => {
+    const lower = text.toLowerCase();
+    if (queryTerms.length === 0) return true;
+    return queryTerms.some(term => lower.includes(term));
+  };
+
+  const queryables: Queryable[] = lines.map(line => {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) return null;
+    const type = line.slice(0, colonIdx).trim();
+    if (type !== 'lex' && type !== 'vec' && type !== 'hyde') return null;
+    const text = line.slice(colonIdx + 1).trim();
+    if (!hasQueryTerm(text)) return null;
+    return { type: type as QueryType, text };
+  }).filter((q): q is Queryable => q !== null);
+
+  const filtered = includeLexical ? queryables : queryables.filter(q => q.type !== 'lex');
+  if (filtered.length > 0) return filtered;
+
+  const fallback: Queryable[] = [
+    { type: 'hyde', text: `Information about ${query}` },
+    { type: 'lex', text: query },
+    { type: 'vec', text: query },
+  ];
+  return includeLexical ? fallback : fallback.filter(q => q.type !== 'lex');
+}
+
 class LLMSessionManager {
   private llm: LlamaCpp;
   private _activeSessionCount = 0;
@@ -2001,20 +2094,20 @@ export function canUnloadLLM(): boolean {
 // underlying resource, so doctor can answer "is the protection active?"
 // without reaching into env handling directly.
 //
-// Setting `QMD_METAL_KEEP_RESIDENCY=1` opts back into residency sets (with
-// the visible-noise consequences). The legacy `QMD_DISABLE_DARWIN_SAFE_EXIT`
+// Setting `QMDX_METAL_KEEP_RESIDENCY=1` opts back into residency sets (with
+// the visible-noise consequences). The legacy `QMDX_DISABLE_DARWIN_SAFE_EXIT`
 // env var is accepted as a no-op alias for back-compat; it had no effect on
 // Node prior to this fix.
 
 /**
  * Whether QMD's darwin Metal exit-crash mitigation is active in this process:
  *   true  → residency sets disabled, process exit completes silently
- *   false → either non-darwin, or `QMD_METAL_KEEP_RESIDENCY=1` overrode it,
+ *   false → either non-darwin, or `QMDX_METAL_KEEP_RESIDENCY=1` overrode it,
  *           in which case the libggml-metal teardown assertion may fire
  */
 export function isDarwinMetalMitigationActive(): boolean {
   if (process.platform !== "darwin") return false;
-  if (process.env.QMD_METAL_KEEP_RESIDENCY === "1") return false;
+  if (process.env.QMDX_METAL_KEEP_RESIDENCY === "1") return false;
   return process.env.GGML_METAL_NO_RESIDENCY === "1";
 }
 

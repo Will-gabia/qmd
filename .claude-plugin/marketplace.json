@@ -1,26 +1,26 @@
 {
-	"name": "qmd",
+	"name": "qmdx",
 	"owner": {
-		"name": "tobi",
-		"email": "tobi@lutke.com"
+		"name": "Will-gabia",
+		"email": "noreply@github.com"
 	},
 	"plugins": [
 		{
-			"name": "qmd",
+			"name": "qmdx",
 			"source": "./",
 			"description": "Search and retrieve documents from local markdown files.",
-			"version": "0.1.0",
+			"version": "2.6.3",
 			"author": {
-				"name": "tobi",
-				"email": "tobi@lutke.com"
+				"name": "Will-gabia",
+				"email": "noreply@github.com"
 			},
-			"repository": "https://github.com/tobi/qmd",
+			"repository": "https://github.com/Will-gabia/qmdx",
 			"license": "MIT",
-			"keywords": ["markdown", "search", "qmd"],
+			"keywords": ["markdown", "search", "qmdx"],
 			"skills": ["./skills/"],
 			"mcpServers": {
-				"qmd": {
-					"command": "qmd",
+				"qmdx": {
+					"command": "qmdx",
 					"args": ["mcp"]
 				}
 			}
